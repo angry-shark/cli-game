@@ -23,6 +23,10 @@ export enum GameAction {
   RESTART = 'restart',
   QUIT = 'quit',
   PAUSE = 'pause',
+  INTERACT = 'interact',
+  INVENTORY = 'inventory',
+  SAVE = 'save',
+  LOAD = 'load',
   NONE = 'none'
 }
 
@@ -66,7 +70,12 @@ export const DEFAULT_KEY_MAPPING: KeyMapping = {
   q: { action: GameAction.QUIT, rawKey: { name: 'q' } },
   p: { action: GameAction.PAUSE, rawKey: { name: 'p' } },
   space: { action: GameAction.PAUSE, rawKey: { name: 'space' } },
-  escape: { action: GameAction.QUIT, rawKey: { name: 'escape' } }
+  escape: { action: GameAction.QUIT, rawKey: { name: 'escape' } },
+  // RPG 快捷键
+  e: { action: GameAction.INTERACT, rawKey: { name: 'e' } },
+  i: { action: GameAction.INVENTORY, rawKey: { name: 'i' } },
+  f: { action: GameAction.SAVE, rawKey: { name: 'f' } },  // file/save
+  o: { action: GameAction.LOAD, rawKey: { name: 'o' } }   // open/load
 };
 
 /**
@@ -169,10 +178,7 @@ export class InputManager {
     }
 
     // 获取按键名：优先使用 key.name，否则使用 key.sequence
-    let keyName = key.name;
-    if (!keyName && key.sequence) {
-      keyName = key.sequence;
-    }
+    let keyName = key.name || key.sequence;
     
     if (!keyName) {
       return false;

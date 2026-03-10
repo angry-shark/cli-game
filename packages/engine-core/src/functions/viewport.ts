@@ -375,10 +375,10 @@ export class MapRenderer {
  * 预定义瓦片类型
  */
 export const TILES = {
-  /** 空地 */
-  FLOOR: { char: '·', walkable: true, transparent: true } as Tile,
-  /** 墙壁 */
-  WALL: { char: '█', walkable: false, transparent: false } as Tile,
+  /** 空地 - 使用双空格与 emoji 宽度对齐 */
+  FLOOR: { char: '  ', walkable: true, transparent: true } as Tile,
+  /** 墙壁 - 使用双宽字符 */
+  WALL: { char: '██', walkable: false, transparent: false } as Tile,
   /** 水 */
   WATER: { char: '~', walkable: false, transparent: true } as Tile,
   /** 草地 */

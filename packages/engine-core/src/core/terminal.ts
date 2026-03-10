@@ -15,7 +15,40 @@ export interface KeyPressEvent {
  * 清屏并将光标移动到顶部
  */
 export function clearScreen(): void {
+  // 使用多种方式确保清屏彻底
+  // 1. ESC[2J - 清除整个屏幕
+  // 2. ESC[H 或 ESC[1;1H - 移动光标到左上角
+  // 3. ESC[3J - 清除滚动缓冲区 (部分终端支持)
+  process.stdout.write('\x1B[2J\x1B[H\x1B[3J');
+}
+
+/**
+ * 重置终端并清屏
+ */
+export function resetTerminal(): void {
+  // 重置终端到默认状态并清屏
   process.stdout.write('\x1Bc');
+}
+
+/**
+ * 获取终端大小
+ * @returns { columns: 列数, rows: 行数 }
+ */
+export function getTerminalSize(): { columns: number; rows: number } {
+  return {
+    columns: process.stdout.columns || 80,
+    rows: process.stdout.rows || 24
+  };
+}
+
+/**
+ * 监听终端大小变化
+ * @param callback 大小变化回调
+ */
+export function onTerminalResize(callback: (size: { columns: number; rows: number }) => void): void {
+  process.stdout.on('resize', () => {
+    callback(getTerminalSize());
+  });
 }
 
 /**
@@ -51,9 +84,28 @@ export function setupRawMode(onKeyPress: (str: string, key: KeyPressEvent) => vo
   
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true);
+    // 禁用鼠标事件和焦点事件（iTerm2 兼容）
+    process.stdout.write('\x1B[?1000l\x1B[?1002l\x1B[?1015l\x1B[?1006l');
+    // 禁用焦点事件报告（iTerm2）
+    process.stdout.write('\x1B[?1004l');
   }
 
   const keypressHandler = (str: string, key: KeyPressEvent) => {
+    // 忽略鼠标事件
+    if (key && key.name === 'mouse') {
+      return;
+    }
+    
+    // 忽略 iTerm2 焦点事件和其他特殊序列
+    if (str && (
+      str === '\x1b[I' ||      // 焦点获取
+      str === '\x1b[O' ||      // 焦点丢失  
+      str.startsWith('\x1b[<') || // 鼠标事件 (SGR 格式)
+      str === '\x1b[M'         // 鼠标事件 (X11 格式)
+    )) {
+      return;
+    }
+    
     onKeyPress(str, key);
   };
 
