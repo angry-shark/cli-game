@@ -164,12 +164,22 @@ export class InputManager {
    * @returns 是否成功处理
    */
   handleKey(key: KeyPressEvent): boolean {
-    if (!this.enabled || !key.name) {
+    if (!this.enabled) {
+      return false;
+    }
+
+    // 获取按键名：优先使用 key.name，否则使用 key.sequence
+    let keyName = key.name;
+    if (!keyName && key.sequence) {
+      keyName = key.sequence;
+    }
+    
+    if (!keyName) {
       return false;
     }
 
     // Ctrl+C 特殊处理
-    if (key.ctrl && key.name === 'c') {
+    if (key.ctrl && keyName === 'c') {
       const event: InputEvent = {
         action: GameAction.QUIT,
         rawKey: key
@@ -178,8 +188,8 @@ export class InputManager {
       return true;
     }
 
-    const keyName = key.name.toLowerCase();
-    const mappedEvent = this.keyMapping[keyName];
+    const normalizedKeyName = keyName.toLowerCase();
+    const mappedEvent = this.keyMapping[normalizedKeyName];
 
     if (!mappedEvent) {
       return false;
