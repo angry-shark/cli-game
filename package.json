@@ -1,0 +1,27 @@
+{
+  "name": "cli-game-root",
+  "version": "1.0.0",
+  "description": "CLI Snake Game Monorepo",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter cli-game dev",
+    "start": "pnpm --filter cli-game start",
+    "typecheck": "pnpm -r typecheck",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "test": "pnpm -r test"
+  },
+  "keywords": [
+    "cli",
+    "game",
+    "snake",
+    "monorepo"
+  ],
+  "license": "ISC",
+  "packageManager": "pnpm@10.13.0",
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

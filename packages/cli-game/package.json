@@ -1,0 +1,32 @@
+{
+  "name": "cli-game",
+  "version": "1.0.0",
+  "description": "A CLI Snake Game built with TypeScript",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "debug": "tsx --inspect-brk src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "bin": {
+    "cli_game": "dist/index.js"
+  },
+  "files": [
+    "dist/**/*"
+  ],
+  "keywords": [
+    "cli",
+    "game",
+    "snake",
+    "terminal",
+    "typescript"
+  ],
+  "license": "ISC",
+  "dependencies": {
+    "@cli-game/engine-core": "workspace:*"
+  }
+}
