@@ -7,7 +7,7 @@ import * as ROT from 'rot-js';
 import {
   Point2D, GameState, EntityType, Entity, PlayerData,
   Tile, GameMap, LogMessage, InventorySlot, EquipmentSlots,
-  GameConfig, Item, ItemType, ItemEffect
+  GameConfig, Item, ItemType, ItemEffect, CombatState
 } from './types.js';
 import { createItem, getRandomLoot, RARITY_COLORS, ITEM_TYPE_ICONS } from './items.js';
 
@@ -80,6 +80,9 @@ export class Game {
   private equipment: EquipmentSlots = {};
   private gold: number = 0;
   private state: GameState = GameState.EXPLORE;
+  private combatState: CombatState = CombatState.PLAYER_TURN;
+  private combatEnemies: Entity[] = []; // 当前战斗中的敌人
+  private inCombat: boolean = false;
   private messages: LogMessage[] = [];
   private turn: number = 0;
   private dungeonLevel: number = 1;
@@ -90,6 +93,7 @@ export class Game {
   private selectedInventoryIndex: number = 0;
   private inventoryFilter: ItemType | null = null;
   private gameOver: boolean = false;
+  private enemyTurnDelay: number = 500; // 敌人回合之间的延迟（毫秒）
 
   constructor(onUpdate: () => void, config: Partial<GameConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -363,22 +367,30 @@ export class Game {
   /** 处理输入 */
   handleInput(key: string): void {
     if (this.gameOver) return;
+    
+    // 战斗模式下，只有玩家回合才响应
+    if (this.state === GameState.COMBAT && this.combatState !== CombatState.PLAYER_TURN) {
+      return;
+    }
 
     switch (this.state) {
       case GameState.EXPLORE:
         this.handleExploreInput(key);
         break;
+      case GameState.COMBAT:
+        this.handleCombatInput(key);
+        break;
       case GameState.INVENTORY:
         this.handleInventoryInput(key);
         break;
       case GameState.MESSAGE:
-        this.state = GameState.EXPLORE;
+        this.state = this.inCombat ? GameState.COMBAT : GameState.EXPLORE;
         this.onUpdate();
         break;
     }
   }
 
-  /** 处理探索模式输入 */
+  /** 处理探索模式输入 - 自由移动 */
   private handleExploreInput(key: string): void {
     let moved = false;
     let dx = 0, dy = 0;
@@ -411,7 +423,7 @@ export class Game {
         this.openInventory();
         return;
       case 'g':
-        this.pickupItem();
+        this.pickupItemExplore();
         return;
       case '>':
         this.useStairs();
@@ -423,12 +435,12 @@ export class Game {
     }
 
     if (moved) {
-      this.movePlayer(dx, dy);
+      this.movePlayerExplore(dx, dy);
     }
   }
 
-  /** 移动玩家 */
-  private movePlayer(dx: number, dy: number): void {
+  /** 探索模式移动 - 自由移动，遇敌切换战斗 */
+  private movePlayerExplore(dx: number, dy: number): void {
     const newX = this.player.position.x + dx;
     const newY = this.player.position.y + dy;
 
@@ -437,31 +449,118 @@ export class Game {
       return;
     }
 
-    // 检查实体阻挡
-    const blockingEntity = this.entities.find(e => 
-      e.position.x === newX && e.position.y === newY && 
-      (e.type === EntityType.ENEMY || (e.type === EntityType.CHEST && !e.isOpen))
+    // 检查是否有敌人（不能穿过敌人）
+    const enemyAtPosition = this.entities.find(e => 
+      e.position.x === newX && e.position.y === newY && e.type === EntityType.ENEMY
     );
 
-    if (blockingEntity) {
-      if (blockingEntity.type === EntityType.ENEMY) {
-        this.attackEntity(blockingEntity);
-      }
+    if (enemyAtPosition) {
+      // 撞向敌人，进入战斗模式
+      this.startCombat(enemyAtPosition);
       return;
     }
 
-    // 移动
+    // 检查宝箱阻挡
+    const chestAtPosition = this.entities.find(e => 
+      e.position.x === newX && e.position.y === newY && 
+      e.type === EntityType.CHEST && !e.isOpen
+    );
+
+    if (chestAtPosition) {
+      return; // 不能穿过关闭的宝箱
+    }
+
+    // 自由移动
     this.player.position.x = newX;
     this.player.position.y = newY;
-    
     this.updateFOV();
-    this.processEnemyTurns();
-    this.turn++;
+    
+    // 检查是否触发战斗（附近有敌人）
+    this.checkCombatTrigger();
+    
     this.onUpdate();
   }
 
-  /** 攻击实体 */
-  private attackEntity(target: Entity): void {
+  /** 检查是否触发战斗 - 当玩家靠近敌人时 */
+  private checkCombatTrigger(): void {
+    // 查找距离玩家2格内的敌人
+    const nearbyEnemies = this.entities.filter(e => {
+      if (e.type !== EntityType.ENEMY) return false;
+      const dist = Math.abs(e.position.x - this.player.position.x) + 
+                   Math.abs(e.position.y - this.player.position.y);
+      return dist <= 2;
+    });
+    
+    if (nearbyEnemies.length > 0) {
+      // 自动进入战斗模式（与最近的敌人）
+      this.startCombat(nearbyEnemies[0]);
+    }
+  }
+
+  /** 开始战斗 */
+  private startCombat(enemy: Entity): void {
+    this.inCombat = true;
+    this.state = GameState.COMBAT;
+    this.combatState = CombatState.PLAYER_TURN;
+    
+    // 收集所有参与战斗的敌人（玩家周围2格内的所有敌人）
+    this.combatEnemies = this.entities.filter(e => {
+      if (e.type !== EntityType.ENEMY) return false;
+      const dist = Math.abs(e.position.x - this.player.position.x) + 
+                   Math.abs(e.position.y - this.player.position.y);
+      return dist <= 2;
+    });
+    
+    if (this.combatEnemies.length === 0) {
+      this.combatEnemies = [enemy];
+    }
+    
+    this.addMessage(`⚔️ 进入战斗！遭遇 ${enemy.name}`, '#FF0000');
+    this.onUpdate();
+  }
+
+  /** 结束战斗 */
+  private endCombat(): void {
+    this.inCombat = false;
+    this.state = GameState.EXPLORE;
+    this.combatState = CombatState.PLAYER_TURN;
+    this.combatEnemies = [];
+    this.addMessage('✓ 战斗结束', '#00FF00');
+    this.onUpdate();
+  }
+
+  /** 处理战斗输入 */
+  private handleCombatInput(key: string): void {
+    switch (key) {
+      case 'a':
+      case 'arrowleft':
+        this.combatAttack();
+        break;
+      case 'd':
+      case 'arrowright':
+        this.combatDefend();
+        break;
+      case 'i':
+        this.openInventory();
+        break;
+      case 'r':
+        this.combatRetreat();
+        break;
+      case 'escape':
+        this.combatRetreat();
+        break;
+    }
+  }
+
+  /** 战斗：攻击 */
+  private combatAttack(): void {
+    if (this.combatEnemies.length === 0) {
+      this.endCombat();
+      return;
+    }
+    
+    // 攻击第一个敌人
+    const target = this.combatEnemies[0];
     const damage = Math.max(1, this.player.attack + this.getEquipmentStats().attack - (target.defense || 0));
     target.hp! -= damage;
     
@@ -472,67 +571,96 @@ export class Game {
       this.player.exp += 10 + this.dungeonLevel * 5;
       this.gold += Math.floor(Math.random() * 10) + 5;
       
-      // 升级检查
       if (this.player.exp >= this.player.maxExp) {
         this.levelUp();
       }
       
       this.entities = this.entities.filter(e => e.id !== target.id);
-    } else {
-      // 敌人反击
-      this.enemyAttack(target);
+      this.combatEnemies = this.combatEnemies.filter(e => e.id !== target.id);
+      
+      // 检查是否还有敌人
+      if (this.combatEnemies.length === 0) {
+        setTimeout(() => this.endCombat(), 500);
+        return;
+      }
     }
     
-    this.processEnemyTurns();
+    this.endPlayerCombatTurn();
+  }
+
+  /** 战斗：防御 */
+  private combatDefend(): void {
+    this.addMessage('你采取防御姿态，本回合受到的伤害减半', '#00FF00');
+    this.endPlayerCombatTurn();
+  }
+
+  /** 战斗：撤退 */
+  private combatRetreat(): void {
+    this.addMessage('你尝试撤退...', '#FFFF00');
+    // 50% 概率成功撤退
+    if (Math.random() < 0.5) {
+      this.addMessage('成功撤退！', '#00FF00');
+      // 向后移动一格
+      const retreatX = this.player.position.x - Math.sign(this.combatEnemies[0].position.x - this.player.position.x);
+      const retreatY = this.player.position.y - Math.sign(this.combatEnemies[0].position.y - this.player.position.y);
+      if (this.isInBounds(retreatX, retreatY) && this.map.tiles[retreatX][retreatY].walkable) {
+        this.player.position.x = retreatX;
+        this.player.position.y = retreatY;
+        this.updateFOV();
+      }
+      this.endCombat();
+    } else {
+      this.addMessage('撤退失败！', '#FF0000');
+      this.endPlayerCombatTurn();
+    }
+  }
+
+  /** 结束玩家战斗回合，开始敌人回合 */
+  private endPlayerCombatTurn(): void {
+    this.combatState = CombatState.ENEMY_TURN;
     this.turn++;
     this.onUpdate();
+    
+    setTimeout(() => {
+      this.processCombatEnemyTurns();
+    }, this.enemyTurnDelay);
   }
 
-  /** 敌人攻击 */
-  private enemyAttack(enemy: Entity): void {
-    const damage = Math.max(1, (enemy.attack || 5) - this.player.defense - this.getEquipmentStats().defense);
-    this.player.hp -= damage;
-    this.addMessage(`${enemy.name} 攻击了你，造成 ${damage} 点伤害`, '#FF0000');
-    
-    if (this.player.hp <= 0) {
-      this.player.hp = 0;
-      this.gameOver = true;
-      this.state = GameState.GAME_OVER;
-      this.addMessage('你被击败了！游戏结束', '#FF0000');
+  /** 处理战斗中的敌人回合 */
+  private async processCombatEnemyTurns(): Promise<void> {
+    for (const enemy of this.combatEnemies) {
+      if (this.gameOver) break;
+      
+      // 敌人攻击
+      const damage = Math.max(1, (enemy.attack || 5) - this.player.defense - this.getEquipmentStats().defense);
+      this.player.hp -= damage;
+      this.addMessage(`${enemy.name} 攻击了你，造成 ${damage} 点伤害`, '#FF0000');
+      
+      if (this.player.hp <= 0) {
+        this.player.hp = 0;
+        this.gameOver = true;
+        this.state = GameState.GAME_OVER;
+        this.addMessage('你被击败了！游戏结束', '#FF0000');
+        this.onUpdate();
+        return;
+      }
+      
+      this.onUpdate();
+      await this.delay(this.enemyTurnDelay);
     }
     
-    this.onUpdate();
+    // 敌人回合结束，切换回玩家回合
+    if (!this.gameOver && this.combatEnemies.length > 0) {
+      this.combatState = CombatState.PLAYER_TURN;
+      this.onUpdate();
+    } else if (this.combatEnemies.length === 0) {
+      this.endCombat();
+    }
   }
 
-  /** 处理敌人回合 */
-  private processEnemyTurns(): void {
-    this.entities.filter(e => e.type === EntityType.ENEMY && e.isHostile).forEach(enemy => {
-      const dist = Math.abs(enemy.position.x - this.player.position.x) + 
-                   Math.abs(enemy.position.y - this.player.position.y);
-      
-      if (dist <= 1) {
-        // 近战范围内直接攻击
-        this.enemyAttack(enemy);
-      } else if (dist <= 5 && this.map.visible[enemy.position.x][enemy.position.y]) {
-        // 玩家在视野内，尝试靠近
-        const dx = Math.sign(this.player.position.x - enemy.position.x);
-        const dy = Math.sign(this.player.position.y - enemy.position.y);
-        
-        const newX = enemy.position.x + dx;
-        const newY = enemy.position.y + dy;
-        
-        if (this.isInBounds(newX, newY) && this.map.tiles[newX][newY].walkable) {
-          const blocked = this.entities.some(e => 
-            e.position.x === newX && e.position.y === newY
-          );
-          
-          if (!blocked) {
-            enemy.position.x = newX;
-            enemy.position.y = newY;
-          }
-        }
-      }
-    });
+  /** 延迟辅助函数 */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /** 升级 */
@@ -601,13 +729,11 @@ export class Game {
         break;
     }
     
-    this.processEnemyTurns();
-    this.turn++;
     this.onUpdate();
   }
 
-  /** 拾取物品 */
-  private pickupItem(): void {
+  /** 探索模式：拾取物品 */
+  private pickupItemExplore(): void {
     const items = this.entities.filter(e => 
       e.type === EntityType.ITEM && 
       e.position.x === this.player.position.x && 
@@ -630,8 +756,6 @@ export class Game {
       });
     }
     
-    this.processEnemyTurns();
-    this.turn++;
     this.onUpdate();
   }
 
@@ -697,7 +821,7 @@ export class Game {
     return this.inventory.filter(slot => slot.item.type === this.inventoryFilter);
   }
 
-  /** 使用选中物品 */
+  /** 使用选中物品 - 战斗模式下消耗回合 */
   private useSelectedItem(): void {
     const filtered = this.getFilteredItems();
     const slot = filtered[this.selectedInventoryIndex];
@@ -705,14 +829,24 @@ export class Game {
     if (!slot) return;
     
     if (slot.item.equippable) {
+      // 装备物品不消耗回合
       this.equipItem(slot.item);
+      this.onUpdate();
     } else if (slot.item.effects) {
+      // 使用消耗品
       this.applyItemEffects(slot.item.effects);
       this.removeItemFromInventory(slot.item.id, 1);
       this.addMessage(`使用了 ${slot.item.name}`, '#00FF00');
+      
+      // 战斗模式下消耗回合
+      if (this.inCombat) {
+        this.state = GameState.COMBAT;
+        this.endPlayerCombatTurn();
+      } else {
+        this.state = GameState.EXPLORE;
+        this.onUpdate();
+      }
     }
-    
-    this.onUpdate();
   }
 
   /** 装备/卸下选中物品 */
@@ -740,6 +874,8 @@ export class Game {
       this.selectedInventoryIndex = Math.max(0, this.getFilteredItems().length - 1);
     }
     
+    // 根据当前状态返回
+    this.state = this.inCombat ? GameState.COMBAT : GameState.EXPLORE;
     this.onUpdate();
   }
 
@@ -833,6 +969,9 @@ export class Game {
   // ============== Getter 方法 ==============
   
   getState(): GameState { return this.state; }
+  getCombatState(): CombatState { return this.combatState; }
+  isInCombat(): boolean { return this.inCombat; }
+  getCombatEnemies(): Entity[] { return this.combatEnemies; }
   getMap(): GameMap { return this.map; }
   getPlayer(): PlayerData { return this.player; }
   getEntities(): Entity[] { return this.entities; }

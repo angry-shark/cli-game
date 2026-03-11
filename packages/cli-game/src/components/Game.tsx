@@ -5,7 +5,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import { Game, ROT, TILES, RARITY_COLORS, ITEM_TYPE_ICONS } from '../game.js';
-import { GameState, ItemType } from '../types.js';
+import { GameState, ItemType, CombatState } from '../types.js';
 
 interface GameComponentProps {
   game: Game;
@@ -115,12 +115,17 @@ export default function GameComponent({ game }: GameComponentProps) {
     );
   }
 
+  // 渲染战斗界面
+  if (state === GameState.COMBAT) {
+    return <CombatView game={game} />;
+  }
+
   // 渲染背包界面
   if (state === GameState.INVENTORY) {
     return <InventoryView game={game} />;
   }
 
-  // 渲染主游戏界面
+  // 渲染主游戏界面（探索模式）
   return (
     <Box flexDirection="column">
       {/* 状态栏 */}
@@ -211,13 +216,17 @@ export default function GameComponent({ game }: GameComponentProps) {
 function StatusBar({ game }: { game: Game }) {
   const player = game.getPlayer();
   const level = game.getDungeonLevel();
-
+  const inCombat = game.isInCombat();
+  
   return (
     <Box width="100%" justifyContent="space-between" borderStyle="single" paddingX={1}>
       <Box>
         <Text color="yellow">🧙 {player.name}</Text>
         <Text> | 层: {level}</Text>
-        <Text> | 回合: {game.getTurn()}</Text>
+        <Text> | </Text>
+        <Text color={inCombat ? 'red' : 'green'}>
+          {inCombat ? '⚔️ 战斗中' : '🗺️ 探索中'}
+        </Text>
       </Box>
       <Box>
         <Text color="green">HP: {player.hp}/{player.maxHp}</Text>
@@ -379,6 +388,65 @@ function getStatName(stat: string): string {
     critical: '暴击'
   };
   return names[stat] || stat;
+}
+
+/** 战斗视图 */
+function CombatView({ game }: { game: Game }) {
+  const player = game.getPlayer();
+  const enemies = game.getCombatEnemies();
+  const combatState = game.getCombatState();
+  const messages = game.getMessages();
+
+  return (
+    <Box flexDirection="column" alignItems="center" justifyContent="center" height={20}>
+      <Text bold color="red">⚔️ 战斗 ⚔️</Text>
+      
+      <Box marginY={1}>
+        <Text color={combatState === CombatState.PLAYER_TURN ? 'green' : 'gray'}>
+          {combatState === CombatState.PLAYER_TURN ? '▶ 你的回合' : '⏳ 敌人回合'}
+        </Text>
+      </Box>
+
+      {/* 战斗双方 */}
+      <Box marginY={1}>
+        <Box flexDirection="column" alignItems="center" marginRight={4}>
+          <Text>🧙</Text>
+          <Text>{player.name}</Text>
+          <Text color="green">HP: {player.hp}/{player.maxHp}</Text>
+        </Box>
+        
+        <Text>VS</Text>
+        
+        <Box flexDirection="column" alignItems="center" marginLeft={4}>
+          {enemies.map((enemy, i) => (
+            <Box key={i} flexDirection="column" alignItems="center">
+              <Text>{enemy.char}</Text>
+              <Text>{enemy.name}</Text>
+              <Text color="red">HP: {enemy.hp}/{enemy.maxHp}</Text>
+            </Box>
+          ))}
+        </Box>
+      </Box>
+
+      {/* 操作提示 */}
+      {combatState === CombatState.PLAYER_TURN && (
+        <Box marginTop={1}>
+          <Text color="gray">
+            [A]攻击 [D]防御 [I]物品 [R]撤退
+          </Text>
+        </Box>
+      )}
+
+      {/* 最近的消息 */}
+      <Box flexDirection="column" marginTop={1} width={60}>
+        {messages.slice(-3).map((msg, i) => (
+          <Text key={i} color={hexToAnsi(msg.color)}>
+            {msg.text}
+          </Text>
+        ))}
+      </Box>
+    </Box>
+  );
 }
 
 /** 获取装备属性统计 */

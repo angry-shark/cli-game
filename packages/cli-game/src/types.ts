@@ -11,9 +11,16 @@ export interface Point2D {
 /** 游戏状态 */
 export enum GameState {
   EXPLORE = 'explore',
+  COMBAT = 'combat',
   INVENTORY = 'inventory',
   MESSAGE = 'message',
   GAME_OVER = 'game_over'
+}
+
+/** 战斗回合状态 */
+export enum CombatState {
+  PLAYER_TURN = 'player_turn',
+  ENEMY_TURN = 'enemy_turn'
 }
 
 /** 实体类型 */
