@@ -2,49 +2,35 @@
 
 ## 项目简介
 
-**CLI RPG** 是一个基于 TypeScript 开发的终端角色扮演游戏，采用 pnpm monorepo 架构。
+**CLI Roguelike RPG** 是一个基于 TypeScript 开发的终端肉鸽（Roguelike）游戏。
 
-项目包含：
-- **engine-core** - 自研的终端游戏引擎核心
-- **cli-game** - 基于引擎构建的 RPG 游戏
+项目使用：
+- **rot.js** - 肉鸽游戏工具包（地图生成、FOV、寻路等）
+- **ink** - React 风格的终端 UI 库
+- **TypeScript 5.9** - 类型安全的开发体验
 
 ## 技术栈
 
 - **语言**: TypeScript 5.9
-- **运行环境**: Node.js (ES2022)
-- **构建工具**: tsc + tsx
-- **包管理**: pnpm workspaces
+- **运行环境**: Node.js 18+ (ES2022)
+- **游戏引擎**: rot.js
+- **UI 框架**: ink (React for Terminal)
+- **包管理**: pnpm
 
 ## 项目结构
 
 ```
 cli_game/
 ├── packages/
-│   ├── engine-core/               # @cli-game/engine-core
-│   │   ├── src/
-│   │   │   ├── core/              # 底层核心模块
-│   │   │   │   ├── terminal.ts    # 终端控制
-│   │   │   │   ├── renderer.ts    # 渲染系统
-│   │   │   │   ├── input.ts       # 输入处理
-│   │   │   │   └── file.ts        # 文件操作
-│   │   │   ├── functions/         # 高级功能封装
-│   │   │   │   ├── scene.ts       # 场景管理
-│   │   │   │   ├── menu.ts        # 菜单系统
-│   │   │   │   ├── progress.ts    # 进度条
-│   │   │   │   ├── logger.ts      # 日志系统
-│   │   │   │   ├── save.ts        # 存档系统
-│   │   │   │   ├── viewport.ts    # 视口/地图系统
-│   │   │   │   ├── panel.ts       # UI 面板系统
-│   │   │   │   ├── inventory.ts   # 背包/物品系统
-│   │   │   │   └── utils.ts       # 通用工具
-│   │   │   └── index.ts           # 统一导出
-│   │   ├── dist/
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   └── cli-game/                  # cli-game (RPG游戏)
+│   └── cli-game/                  # 游戏主包
 │       ├── src/
-│       │   ├── index.ts           # 入口
-│       │   └── rpg-game.ts        # 游戏逻辑
+│       │   ├── index.tsx          # 游戏入口（ink 渲染）
+│       │   ├── game.ts            # 游戏核心逻辑（rot.js）
+│       │   ├── items.ts           # 物品数据库
+│       │   ├── types.ts           # TypeScript 类型定义
+│       │   └── components/
+│       │       └── Game.tsx       # 游戏 UI 组件（ink）
+│       ├── dist/                  # 编译输出
 │       ├── package.json
 │       └── tsconfig.json
 ├── package.json                   # 根配置
@@ -52,66 +38,31 @@ cli_game/
 └── README.md
 ```
 
-## Monorepo 架构
+## 核心功能
 
-### 依赖关系
+### 地图系统 (rot.js)
+- `ROT.Map.Digger` - 房间+走廊式地下城生成
+- `ROT.FOV.PreciseShadowcasting` - 精确阴影投射视野计算
+- 可探索的迷雾系统
 
-```
-cli-game (RPG游戏)
-    ↓ 依赖
-@cli-game/engine-core (游戏引擎)
-    ├── core/ (底层基础)
-    │   ├── terminal.ts  - 清屏、光标、原始模式
-    │   ├── renderer.ts  - GameRenderer、格式化
-    │   ├── input.ts     - InputManager、按键映射
-    │   └── file.ts      - 读写文件、目录操作
-    └── functions/ (高级功能)
-        ├── scene.ts     - 场景管理器
-        ├── menu.ts      - 交互式菜单
-        ├── progress.ts  - 进度条、加载动画
-        ├── logger.ts    - 彩色日志系统
-        ├── save.ts      - 存档管理器
-        ├── viewport.ts  - 视口/相机、瓦片地图 ⭐
-        ├── panel.ts     - UI面板、HUD ⭐
-        ├── inventory.ts - 背包、物品、装备 ⭐
-        └── utils.ts     - 工具函数
-```
+### 游戏机制
+- 回合制战斗
+- 视野范围限制
+- 多层地下城
+- 敌人 AI（追踪玩家）
+- 升级系统
 
-### ⭐ RPG 核心功能
+### 背包系统
+- 30格背包容量
+- 物品堆叠
+- 分类筛选
+- 装备槽位（武器、护甲、头盔、盾牌、戒指）
 
-#### viewport.ts - 视口/地图系统
-- `Viewport` - 视口/相机，支持跟随和平滑移动
-- `TileMap` - 瓦片地图，支持多实体管理
-- `MapRenderer` - 地图渲染器
-- `generateRoomMap()` - 随机房间地图生成
-- `TILES` - 预定义瓦片库（墙、地板、门、宝箱等）
-
-#### panel.ts - UI 面板系统
-- `Panel` - 基础面板容器
-- `HUD` - 角色状态 HUD，自动更新
-- `MessageLog` - 消息日志
-- `renderHealthBar()` - 彩色血条（绿/黄/红）
-- `renderExpBar()` - 经验条
-- `SplitLayout` - 分割布局
-
-#### inventory.ts - 背包系统
-- `Inventory` - 完整背包（堆叠、分类、装备槽）
-- `InventoryPanel` - 背包 UI（支持筛选）
-- `ItemDetailPanel` - 物品详情
-- `EquipmentPanel` - 装备面板
-- `ITEM_DATABASE` - 物品模板库
-- `ItemType` / `ItemRarity` - 枚举类型
-
-## 游戏特性
-
-| 功能 | 实现 |
-|------|------|
-| 地图探索 | 随机生成房间+走廊的地下城 |
-| 角色移动 | WASD/方向键，视口跟随 |
-| 角色面板 | 实时显示 HP/MP/EXP/属性/装备 |
-| 背包系统 | 30格背包，支持堆叠、分类筛选、使用、装备、丢弃 |
-| 存档系统 | 快速存档/读档 |
-| 随机事件 | 探索时触发金币、宝箱等事件 |
+### UI 系统 (ink)
+- React 组件式 UI
+- 实时渲染
+- 键盘事件处理
+- 响应式布局
 
 ## 开发命令
 
@@ -122,7 +73,7 @@ pnpm install
 # 运行游戏
 pnpm start
 
-# 开发模式
+# 开发模式（热重载）
 pnpm dev
 
 # 类型检查
@@ -138,49 +89,65 @@ pnpm clean
 ## 代码规范
 
 - 使用严格类型检查 (`strict: true`)
-- 每个包独立 tsconfig.json
-- 包间通过 `workspace:*` 协议依赖
-- 公共 API 必须导出类型定义
-- Core 模块提供原子能力，Functions 模块提供高级封装
-- 游戏逻辑与引擎分离，便于复用引擎
+- React 函数式组件 + Hooks
+- 组件与游戏逻辑分离
+- 类型定义集中在 types.ts
 
 ## 扩展指南
 
-### 添加新地图类型
-
+### 添加新怪物
 ```typescript
-// viewport.ts
-export const TILES = {
-  // ... 现有类型
-  TRAP: { char: '^', walkable: true, transparent: true } as Tile,
-  PORTAL: { char: '○', walkable: true, transparent: true } as Tile
-};
+// game.ts 中的 ENTITY_TEMPLATES
+'dark_knight': {
+  name: '黑暗骑士',
+  char: '⚔️',
+  color: '#4B0082',
+  hp: 100,
+  attack: 15,
+  defense: 8,
+  isHostile: true
+}
 ```
 
 ### 添加新物品
-
 ```typescript
-// inventory.ts
-ITEM_DATABASE['legendary_sword'] = {
-  id: 'legendary_sword',
-  name: '传说之剑',
+// items.ts 中的 ITEM_DATABASE
+'flame_sword': {
+  id: 'flame_sword',
+  name: '烈焰剑',
   type: ItemType.WEAPON,
-  rarity: ItemRarity.LEGENDARY,
-  // ...
-};
-```
-
-### 添加新怪物
-
-```typescript
-// rpg-game.ts
-interface Monster {
-  name: string;
-  hp: number;
-  attack: number;
-  tile: Tile;
+  rarity: ItemRarity.EPIC,
+  description: '剑身燃烧着永不熄灭的火焰',
+  char: '🔥',
+  color: '#FF4500',
+  stackable: false,
+  stats: { attack: 25, critical: 10 },
+  equippable: true,
+  equipSlot: ItemType.WEAPON
 }
-
-// 在地图生成时添加怪物
-this.map.addEntity('slime_1', x, y, { char: 's', walkable: false, ... });
 ```
+
+### 添加新地图特性
+```typescript
+// game.ts 中的 TILES
+TRAP: { 
+  char: '^', 
+  color: '#FF0000', 
+  bgColor: '#1a1a1a', 
+  walkable: true, 
+  transparent: true 
+}
+```
+
+## 依赖说明
+
+### 生产依赖
+- `rot-js`: ^2.2.1 - 肉鸽游戏工具包
+- `ink`: ^5.2.0 - React 终端 UI
+- `react`: ^18.3.1 - React 核心
+
+### 开发依赖
+- `typescript`: ^5.9.3
+- `tsx`: ^4.21.0 - TypeScript 执行器
+- `@types/react`: ^18.3.18
+- `@types/node`: ^25.4.0

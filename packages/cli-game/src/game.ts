@@ -1,267 +1,852 @@
-import { 
-  setupRawMode, 
-  safeExit,
-  KeyPressEvent,
-  GameRenderer,
-  createCell,
-  formatScore,
-  formatControls,
-  formatGameOver,
-  formatStartMenu,
-  InputManager,
-  InputEvent,
-  GameAction,
-  Direction,
-  getDirectionDelta
-} from '@cli-game/engine-core';
+/**
+ * 游戏核心逻辑
+ * 使用 rot-js 构建
+ */
 
-interface Position {
-  x: number;
-  y: number;
+import * as ROT from 'rot-js';
+import {
+  Point2D, GameState, EntityType, Entity, PlayerData,
+  Tile, GameMap, LogMessage, InventorySlot, EquipmentSlots,
+  GameConfig, Item, ItemType, ItemEffect
+} from './types.js';
+import { createItem, getRandomLoot, RARITY_COLORS, ITEM_TYPE_ICONS } from './items.js';
+
+/** 默认游戏配置 */
+const DEFAULT_CONFIG: GameConfig = {
+  mapWidth: 80,
+  mapHeight: 24,
+  viewportWidth: 40,
+  viewportHeight: 20,
+  fovRadius: 12,
+  maxDungeonLevel: 10
+};
+
+/** 地图瓦片定义 - 墙壁连续填充，地板完全透明 */
+const TILES = {
+  WALL: { char: '██', color: '#808080', bgColor: '#2F2F2F', walkable: false, transparent: false },
+  FLOOR: { char: '  ', color: '#1a1a1a', bgColor: '#1a1a1a', walkable: true, transparent: true },
+  DOOR_CLOSED: { char: '██', color: '#8B4513', bgColor: '#2F1B0C', walkable: false, transparent: false },
+  DOOR_OPEN: { char: '  ', color: '#1a1a1a', bgColor: '#1a1a1a', walkable: true, transparent: true },
+  STAIRS_DOWN: { char: '▼ ', color: '#FFD700', bgColor: '#1a1a1a', walkable: true, transparent: true },
+  STAIRS_UP: { char: '▲ ', color: '#FFD700', bgColor: '#1a1a1a', walkable: true, transparent: true }
+};
+
+/** 敌人模板 */
+interface EnemyTemplate {
+  name: string;
+  char: string;
+  color: string;
+  hp: number;
+  attack: number;
+  defense: number;
+  isHostile: true;
 }
 
-export class SnakeGame {
-  public width: number;
-  public height: number;
-  public snake: Position[];
-  public food: Position;
-  public score: number;
-  public gameOver: boolean;
-  public speed: number;
-  private renderer: GameRenderer;
-  private currentDirection: { x: number; y: number };
-
-  constructor(width: number = 20, height: number = 15) {
-    this.width = width;
-    this.height = height;
-    this.snake = [
-      { x: Math.floor(width / 2), y: Math.floor(height / 2) }
-    ];
-    this.currentDirection = { x: 1, y: 0 };
-    this.food = this.generateFood();
-    this.score = 0;
-    this.gameOver = false;
-    this.speed = 150;
-    this.renderer = new GameRenderer({ width, height });
-  }
-
-  generateFood(): Position {
-    let food: Position;
-    do {
-      food = {
-        x: Math.floor(Math.random() * this.width),
-        y: Math.floor(Math.random() * this.height)
-      };
-    } while (this.isSnakeAt(food.x, food.y));
-    return food;
-  }
-
-  isSnakeAt(x: number, y: number): boolean {
-    return this.snake.some(segment => segment.x === x && segment.y === y);
-  }
-
-  update(): void {
-    if (this.gameOver) return;
-
-    const head: Position = { ...this.snake[0] };
-    head.x += this.currentDirection.x;
-    head.y += this.currentDirection.y;
-
-    // 碰撞检测 - 墙壁
-    if (head.x < 0 || head.x >= this.width || head.y < 0 || head.y >= this.height) {
-      this.gameOver = true;
-      return;
-    }
-
-    // 碰撞检测 - 自身
-    if (this.isSnakeAt(head.x, head.y)) {
-      this.gameOver = true;
-      return;
-    }
-
-    this.snake.unshift(head);
-
-    // 吃到食物
-    if (head.x === this.food.x && head.y === this.food.y) {
-      this.score += 10;
-      this.food = this.generateFood();
-      this.speed = Math.max(50, this.speed - 2);
-    } else {
-      this.snake.pop();
-    }
-  }
-
-  changeDirection(direction: Direction): void {
-    const delta = getDirectionDelta(direction);
-    // 防止 180 度反向（由 InputManager 处理，这里是双重保险）
-    if (this.currentDirection.x !== -delta.x || this.currentDirection.y !== -delta.y) {
-      this.currentDirection = delta;
-    }
-  }
-
-  render(): void {
-    this.renderer.reset();
-    this.renderer.renderTopBorder();
-
-    // 渲染每一行
-    for (let y = 0; y < this.height; y++) {
-      const row: string[] = [];
-      for (let x = 0; x < this.width; x++) {
-        const isHead = this.snake[0].x === x && this.snake[0].y === y;
-        const isBody = !isHead && this.isSnakeAt(x, y);
-        const isFood = this.food.x === x && this.food.y === y;
-        row.push(createCell(isHead, isBody, isFood));
-      }
-      this.renderer.renderRow(row);
-    }
-
-    this.renderer.renderBottomBorder();
-    this.renderer.renderNewLine();
-    this.renderer.renderInfo(formatScore(this.score, this.speed));
-    this.renderer.renderInfo(formatControls());
-
-    if (this.gameOver) {
-      this.renderer.renderNewLine();
-      this.renderer.renderInfo(formatGameOver());
-    }
-
-    this.renderer.flush();
-  }
+/** NPC 模板 */
+interface NPCTemplate {
+  name: string;
+  char: string;
+  color: string;
+  hp: number;
+  dialogue: string[];
 }
 
-export class GameManager {
-  public game: SnakeGame | null;
-  private interval: NodeJS.Timeout | null;
-  private cleanupTerminal: (() => void) | null;
-  private inputManager: InputManager;
-  private isPaused: boolean;
+/** 实体模板 - 使用 Emoji */
+const ENTITY_TEMPLATES: Record<string, EnemyTemplate | NPCTemplate> = {
+  // NPC
+  'villager': { name: '村民', char: '👴', color: '#FFA500', hp: 20, dialogue: ['欢迎来到地下城！', '小心深处的怪物。'] },
+  'merchant': { name: '商人', char: '👲', color: '#FFD700', hp: 30, dialogue: ['需要补给吗？', '我这里有好东西。'] },
+  
+  // 敌人
+  'slime': { name: '史莱姆', char: '🟢', color: '#32CD32', hp: 15, attack: 3, defense: 0, isHostile: true },
+  'goblin': { name: '哥布林', char: '👺', color: '#228B22', hp: 25, attack: 5, defense: 1, isHostile: true },
+  'skeleton': { name: '骷髅', char: '💀', color: '#F5F5DC', hp: 20, attack: 6, defense: 0, isHostile: true },
+  'bat': { name: '蝙蝠', char: '🦇', color: '#800080', hp: 10, attack: 3, defense: 0, isHostile: true },
+  'orc': { name: '兽人', char: '👹', color: '#006400', hp: 35, attack: 8, defense: 2, isHostile: true },
+  'troll': { name: '巨魔', char: '🧟', color: '#008000', hp: 50, attack: 10, defense: 3, isHostile: true },
+  'spider': { name: '蜘蛛', char: '🕷️', color: '#4B0082', hp: 12, attack: 4, defense: 0, isHostile: true },
+  'snake': { name: '毒蛇', char: '🐍', color: '#556B2F', hp: 18, attack: 5, defense: 0, isHostile: true },
+  'ghost': { name: '幽灵', char: '👻', color: '#E0E0E0', hp: 25, attack: 7, defense: 1, isHostile: true },
+  'dragon': { name: '幼龙', char: '🐲', color: '#FF4500', hp: 80, attack: 15, defense: 5, isHostile: true }
+};
 
-  constructor() {
-    this.game = null;
-    this.interval = null;
-    this.cleanupTerminal = null;
-    this.isPaused = false;
-    this.inputManager = new InputManager({
-      onInput: this.handleInput.bind(this)
+/** 游戏主类 */
+export class Game {
+  private config: GameConfig;
+  private map!: GameMap;
+  private player: PlayerData;
+  private entities: Entity[] = [];
+  private inventory: InventorySlot[] = [];
+  private equipment: EquipmentSlots = {};
+  private gold: number = 0;
+  private state: GameState = GameState.EXPLORE;
+  private messages: LogMessage[] = [];
+  private turn: number = 0;
+  private dungeonLevel: number = 1;
+  private scheduler: InstanceType<typeof ROT.Scheduler.Simple>;
+  private engine: InstanceType<typeof ROT.Engine>;
+  private fov: InstanceType<typeof ROT.FOV.PreciseShadowcasting>;
+  onUpdate: () => void;
+  private selectedInventoryIndex: number = 0;
+  private inventoryFilter: ItemType | null = null;
+  private gameOver: boolean = false;
+
+  constructor(onUpdate: () => void, config: Partial<GameConfig> = {}) {
+    this.config = { ...DEFAULT_CONFIG, ...config };
+    this.onUpdate = onUpdate;
+    
+    // 初始化玩家
+    this.player = {
+      name: '勇者',
+      level: 1,
+      hp: 100,
+      maxHp: 100,
+      mp: 50,
+      maxMp: 50,
+      exp: 0,
+      maxExp: 100,
+      attack: 10,
+      defense: 5,
+      gold: 0,
+      position: { x: 0, y: 0 }
+    };
+    
+    // 生成地图
+    this.generateMap();
+    
+    // 初始化背包
+    this.initInventory();
+    
+    // 初始化调度器
+    this.scheduler = new ROT.Scheduler.Simple();
+    this.scheduler.add(this, true);
+    this.engine = new ROT.Engine(this.scheduler);
+    
+    // 初始化视野
+    this.fov = new ROT.FOV.PreciseShadowcasting((x, y) => {
+      return this.isTransparent(x, y);
     });
-    this.setupInput();
+    
+    this.updateFOV();
+    this.addMessage('欢迎来到地下城！使用 WASD 或方向键移动', '#00FF00');
   }
 
-  setupInput(): void {
-    this.cleanupTerminal = setupRawMode((str: string, key: KeyPressEvent) => {
-      this.inputManager.handleKey(key);
-    });
-
-    // 程序退出时清理
-    process.on('exit', () => this.cleanup());
-    process.on('SIGINT', () => this.quit());
-    process.on('SIGTERM', () => this.quit());
-  }
-
-  handleInput(event: InputEvent): void {
-    switch (event.action) {
-      case GameAction.QUIT:
-        this.quit();
-        break;
-      case GameAction.RESTART:
-        if (this.game?.gameOver || this.isPaused) {
-          this.isPaused = false;
-          this.start();
-        }
-        break;
-      case GameAction.PAUSE:
-        if (!this.game?.gameOver) {
-          this.togglePause();
-        }
-        break;
-      case GameAction.MOVE:
-        if (event.direction && !this.isPaused && !this.game?.gameOver) {
-          this.game?.changeDirection(event.direction);
-        }
-        break;
-    }
-  }
-
-  togglePause(): void {
-    if (!this.game || this.game.gameOver) return;
-
-    this.isPaused = !this.isPaused;
-    if (!this.isPaused) {
-      this.runGameLoop();
-    }
-  }
-
-  cleanup(): void {
-    if (this.interval) {
-      clearTimeout(this.interval);
-      this.interval = null;
-    }
-    if (this.cleanupTerminal) {
-      this.cleanupTerminal();
-      this.cleanupTerminal = null;
-    }
-    this.inputManager.disable();
-  }
-
-  start(): void {
-    if (this.interval) {
-      clearTimeout(this.interval);
-    }
-
-    this.inputManager.resetDirection();
-    this.game = new SnakeGame();
-    this.isPaused = false;
-    this.game.render();
-    this.runGameLoop();
-  }
-
-  runGameLoop(): void {
-    if (!this.game || this.game.gameOver || this.isPaused) return;
-
-    const gameLoop = (): void => {
-      if (!this.game || this.game.gameOver || this.isPaused) return;
-
-      this.game.update();
-      this.game.render();
-
-      if (!this.game.gameOver && !this.isPaused) {
-        this.interval = setTimeout(gameLoop, this.game.speed);
-      }
+  /** 生成地图 */
+  private generateMap(): void {
+    const map: GameMap = {
+      width: this.config.mapWidth,
+      height: this.config.mapHeight,
+      tiles: [],
+      explored: [],
+      visible: []
     };
 
-    this.interval = setTimeout(gameLoop, this.game.speed);
-  }
+    // 初始化地图
+    for (let x = 0; x < map.width; x++) {
+      map.tiles[x] = [];
+      map.explored[x] = [];
+      map.visible[x] = [];
+      for (let y = 0; y < map.height; y++) {
+        map.tiles[x][y] = TILES.WALL;
+        map.explored[x][y] = false;
+        map.visible[x][y] = false;
+      }
+    }
 
-  quit(): void {
-    this.cleanup();
-    safeExit('感谢游玩! 👋');
-  }
+    // 使用 ROT.js 的 Digger 算法生成房间
+    const digger = new ROT.Map.Digger(map.width, map.height, {
+      roomWidth: [4, 10],
+      roomHeight: [4, 8],
+      corridorLength: [2, 6],
+      dugPercentage: 0.2
+    });
 
-  /**
-   * 显示开始菜单并等待按键
-   */
-  async showStartMenu(): Promise<void> {
-    const menu = formatStartMenu();
-    menu.forEach(line => process.stdout.write(line));
-    
-    // 等待任意按键
-    await new Promise<void>((resolve) => {
-      const tempHandler = (str: string, key: KeyPressEvent) => {
-        this.inputManager.handleKey(key);
-        if (!this.game) {
-          resolve();
-        }
+    const rooms: Array<{ getLeft(): number; getRight(): number; getTop(): number; getBottom(): number }> = [];
+    digger.create((x, y, value) => {
+      if (value === 0) {
+        map.tiles[x][y] = TILES.FLOOR;
+      }
+    });
+
+    // 获取房间
+    digger.getRooms().forEach(room => rooms.push(room));
+
+    // 放置玩家（在第一个房间）
+    if (rooms.length > 0) {
+      const firstRoom = rooms[0];
+      this.player.position = {
+        x: Math.floor((firstRoom.getLeft() + firstRoom.getRight()) / 2),
+        y: Math.floor((firstRoom.getTop() + firstRoom.getBottom()) / 2)
       };
+    }
+
+    // 放置楼梯（在最后一个房间）
+    if (rooms.length > 1) {
+      const lastRoom = rooms[rooms.length - 1];
+      const stairsX = Math.floor((lastRoom.getLeft() + lastRoom.getRight()) / 2);
+      const stairsY = Math.floor((lastRoom.getTop() + lastRoom.getBottom()) / 2);
+      map.tiles[stairsX][stairsY] = TILES.STAIRS_DOWN;
+    }
+
+    this.map = map;
+
+    // 生成实体
+    this.generateEntities(rooms);
+  }
+
+  /** 生成实体 */
+  private generateEntities(rooms: Array<{ getLeft(): number; getRight(): number; getTop(): number; getBottom(): number }>): void {
+    this.entities = [];
+    
+    // 跳过第一个房间（玩家出生点）
+    for (let i = 1; i < rooms.length; i++) {
+      const room = rooms[i];
+      const centerX = Math.floor((room.getLeft() + room.getRight()) / 2);
+      const centerY = Math.floor((room.getTop() + room.getBottom()) / 2);
+
+      // 随机决定房间内容
+      const roll = Math.random();
       
-      // 临时覆盖输入处理
-      const originalCallback = this.inputManager['onInput'];
-      this.inputManager.setCallback((event: InputEvent) => {
-        if (event.action !== GameAction.NONE) {
-          this.inputManager.setCallback(originalCallback);
-          resolve();
-          this.handleInput(event);
-        }
-      });
+      if (roll < 0.3) {
+        // 生成怪物
+        this.spawnEnemy(centerX, centerY);
+      } else if (roll < 0.4) {
+        // 生成宝箱
+        this.spawnChest(centerX, centerY);
+      } else if (roll < 0.5) {
+        // 生成NPC
+        this.spawnNPC(centerX, centerY);
+      }
+      
+      // 房间角落可能生成物品
+      if (Math.random() < 0.3) {
+        const itemX = room.getLeft() + 1 + Math.floor(Math.random() * (room.getRight() - room.getLeft() - 2));
+        const itemY = room.getTop() + 1 + Math.floor(Math.random() * (room.getBottom() - room.getTop() - 2));
+        this.spawnItemOnMap(itemX, itemY);
+      }
+    }
+  }
+
+  /** 生成敌人 */
+  private spawnEnemy(x: number, y: number): void {
+    const templates = Object.entries(ENTITY_TEMPLATES).filter(([_, t]) => 'isHostile' in t) as [string, EnemyTemplate][];
+    const [key, template] = templates[Math.floor(Math.random() * templates.length)];
+    
+    this.entities.push({
+      id: `enemy_${this.turn}_${x}_${y}`,
+      type: EntityType.ENEMY,
+      name: template.name,
+      position: { x, y },
+      char: template.char,
+      color: template.color,
+      hp: template.hp,
+      maxHp: template.hp,
+      attack: template.attack,
+      defense: template.defense,
+      isHostile: true
     });
   }
+
+  /** 生成宝箱 */
+  private spawnChest(x: number, y: number): void {
+    this.entities.push({
+      id: `chest_${this.turn}_${x}_${y}`,
+      type: EntityType.CHEST,
+      name: '宝箱',
+      position: { x, y },
+      char: '📦',
+      color: '#FFD700',
+      isOpen: false,
+      loot: ['health_potion', 'herb', 'iron_ore']
+    });
+  }
+
+  /** 生成NPC */
+  private spawnNPC(x: number, y: number): void {
+    const npcTypes = ['villager', 'merchant'];
+    const key = npcTypes[Math.floor(Math.random() * npcTypes.length)];
+    const template = ENTITY_TEMPLATES[key] as NPCTemplate;
+    
+    this.entities.push({
+      id: `npc_${this.turn}_${x}_${y}`,
+      type: EntityType.NPC,
+      name: template.name,
+      position: { x, y },
+      char: template.char,
+      color: template.color,
+      dialogue: template.dialogue
+    });
+  }
+
+  /** 在地图上生成物品 */
+  private spawnItemOnMap(x: number, y: number): void {
+    const item = getRandomLoot();
+    if (!item) return;
+    
+    this.entities.push({
+      id: `item_${this.turn}_${x}_${y}`,
+      type: EntityType.ITEM,
+      name: item.name,
+      position: { x, y },
+      char: item.char,
+      color: item.color,
+      loot: [item.id]
+    });
+  }
+
+  /** 初始化背包 */
+  private initInventory(): void {
+    this.addItemToInventory(createItem('wooden_sword')!);
+    this.addItemToInventory(createItem('leather_armor')!);
+    this.addItemToInventory(createItem('health_potion')!, 3);
+    this.addItemToInventory(createItem('herb')!, 5);
+  }
+
+  /** 添加物品到背包 */
+  addItemToInventory(item: Item, quantity: number = 1): boolean {
+    if (item.stackable) {
+      const existing = this.inventory.find(slot => slot.item.id === item.id);
+      if (existing) {
+        existing.quantity += quantity;
+        return true;
+      }
+    }
+    
+    if (this.inventory.length < 30) {
+      this.inventory.push({ item, quantity });
+      return true;
+    }
+    
+    this.addMessage('背包已满！', '#FF0000');
+    return false;
+  }
+
+  /** 检查是否透明（用于FOV） */
+  private isTransparent(x: number, y: number): boolean {
+    if (!this.isInBounds(x, y)) return false;
+    return this.map.tiles[x][y].transparent;
+  }
+
+  /** 检查是否在边界内 */
+  private isInBounds(x: number, y: number): boolean {
+    return x >= 0 && x < this.map.width && y >= 0 && y < this.map.height;
+  }
+
+  /** 更新视野 - 整个地图可见，视野内是亮的，视野外是阴影 */
+  private updateFOV(): void {
+    // 首先将整个地图标记为已探索（可见但可能是阴影）
+    for (let x = 0; x < this.map.width; x++) {
+      for (let y = 0; y < this.map.height; y++) {
+        this.map.explored[x][y] = true;
+        this.map.visible[x][y] = false; // 默认不在视野内（阴影）
+      }
+    }
+
+    // 计算视野范围 - 视野内的区域是亮的
+    this.fov.compute(
+      this.player.position.x, 
+      this.player.position.y, 
+      this.config.fovRadius, 
+      (x: number, y: number, _r: number, _visibility: number) => {
+        if (this.isInBounds(x, y)) {
+          this.map.visible[x][y] = true; // 在视野内，高亮显示
+        }
+      }
+    );
+  }
+
+  /** 执行回合 */
+  act(): void {
+    this.engine.lock();
+  }
+
+  /** 处理输入 */
+  handleInput(key: string): void {
+    if (this.gameOver) return;
+
+    switch (this.state) {
+      case GameState.EXPLORE:
+        this.handleExploreInput(key);
+        break;
+      case GameState.INVENTORY:
+        this.handleInventoryInput(key);
+        break;
+      case GameState.MESSAGE:
+        this.state = GameState.EXPLORE;
+        this.onUpdate();
+        break;
+    }
+  }
+
+  /** 处理探索模式输入 */
+  private handleExploreInput(key: string): void {
+    let moved = false;
+    let dx = 0, dy = 0;
+
+    switch (key) {
+      case 'w':
+      case 'arrowup':
+        dy = -1;
+        moved = true;
+        break;
+      case 's':
+      case 'arrowdown':
+        dy = 1;
+        moved = true;
+        break;
+      case 'a':
+      case 'arrowleft':
+        dx = -1;
+        moved = true;
+        break;
+      case 'd':
+      case 'arrowright':
+        dx = 1;
+        moved = true;
+        break;
+      case 'e':
+        this.interact();
+        return;
+      case 'i':
+        this.openInventory();
+        return;
+      case 'g':
+        this.pickupItem();
+        return;
+      case '>':
+        this.useStairs();
+        return;
+      case 'escape':
+      case 'q':
+        process.exit(0);
+        return;
+    }
+
+    if (moved) {
+      this.movePlayer(dx, dy);
+    }
+  }
+
+  /** 移动玩家 */
+  private movePlayer(dx: number, dy: number): void {
+    const newX = this.player.position.x + dx;
+    const newY = this.player.position.y + dy;
+
+    // 检查边界和可行走性
+    if (!this.isInBounds(newX, newY) || !this.map.tiles[newX][newY].walkable) {
+      return;
+    }
+
+    // 检查实体阻挡
+    const blockingEntity = this.entities.find(e => 
+      e.position.x === newX && e.position.y === newY && 
+      (e.type === EntityType.ENEMY || (e.type === EntityType.CHEST && !e.isOpen))
+    );
+
+    if (blockingEntity) {
+      if (blockingEntity.type === EntityType.ENEMY) {
+        this.attackEntity(blockingEntity);
+      }
+      return;
+    }
+
+    // 移动
+    this.player.position.x = newX;
+    this.player.position.y = newY;
+    
+    this.updateFOV();
+    this.processEnemyTurns();
+    this.turn++;
+    this.onUpdate();
+  }
+
+  /** 攻击实体 */
+  private attackEntity(target: Entity): void {
+    const damage = Math.max(1, this.player.attack + this.getEquipmentStats().attack - (target.defense || 0));
+    target.hp! -= damage;
+    
+    this.addMessage(`你攻击了 ${target.name}，造成 ${damage} 点伤害`, '#FFFFFF');
+    
+    if (target.hp! <= 0) {
+      this.addMessage(`你击败了 ${target.name}！`, '#00FF00');
+      this.player.exp += 10 + this.dungeonLevel * 5;
+      this.gold += Math.floor(Math.random() * 10) + 5;
+      
+      // 升级检查
+      if (this.player.exp >= this.player.maxExp) {
+        this.levelUp();
+      }
+      
+      this.entities = this.entities.filter(e => e.id !== target.id);
+    } else {
+      // 敌人反击
+      this.enemyAttack(target);
+    }
+    
+    this.processEnemyTurns();
+    this.turn++;
+    this.onUpdate();
+  }
+
+  /** 敌人攻击 */
+  private enemyAttack(enemy: Entity): void {
+    const damage = Math.max(1, (enemy.attack || 5) - this.player.defense - this.getEquipmentStats().defense);
+    this.player.hp -= damage;
+    this.addMessage(`${enemy.name} 攻击了你，造成 ${damage} 点伤害`, '#FF0000');
+    
+    if (this.player.hp <= 0) {
+      this.player.hp = 0;
+      this.gameOver = true;
+      this.state = GameState.GAME_OVER;
+      this.addMessage('你被击败了！游戏结束', '#FF0000');
+    }
+    
+    this.onUpdate();
+  }
+
+  /** 处理敌人回合 */
+  private processEnemyTurns(): void {
+    this.entities.filter(e => e.type === EntityType.ENEMY && e.isHostile).forEach(enemy => {
+      const dist = Math.abs(enemy.position.x - this.player.position.x) + 
+                   Math.abs(enemy.position.y - this.player.position.y);
+      
+      if (dist <= 1) {
+        // 近战范围内直接攻击
+        this.enemyAttack(enemy);
+      } else if (dist <= 5 && this.map.visible[enemy.position.x][enemy.position.y]) {
+        // 玩家在视野内，尝试靠近
+        const dx = Math.sign(this.player.position.x - enemy.position.x);
+        const dy = Math.sign(this.player.position.y - enemy.position.y);
+        
+        const newX = enemy.position.x + dx;
+        const newY = enemy.position.y + dy;
+        
+        if (this.isInBounds(newX, newY) && this.map.tiles[newX][newY].walkable) {
+          const blocked = this.entities.some(e => 
+            e.position.x === newX && e.position.y === newY
+          );
+          
+          if (!blocked) {
+            enemy.position.x = newX;
+            enemy.position.y = newY;
+          }
+        }
+      }
+    });
+  }
+
+  /** 升级 */
+  private levelUp(): void {
+    this.player.level++;
+    this.player.exp = 0;
+    this.player.maxExp = Math.floor(this.player.maxExp * 1.5);
+    this.player.maxHp += 20;
+    this.player.hp = this.player.maxHp;
+    this.player.maxMp += 10;
+    this.player.mp = this.player.maxMp;
+    this.player.attack += 3;
+    this.player.defense += 2;
+    this.addMessage(`升级了！等级提升到 ${this.player.level}`, '#FFD700');
+  }
+
+  /** 交互 */
+  private interact(): void {
+    const nearby = this.entities.filter(e => {
+      const dx = Math.abs(e.position.x - this.player.position.x);
+      const dy = Math.abs(e.position.y - this.player.position.y);
+      return dx <= 1 && dy <= 1 && !(dx === 0 && dy === 0);
+    });
+
+    if (nearby.length === 0) {
+      this.addMessage('附近没有可以互动的对象', '#808080');
+      this.onUpdate();
+      return;
+    }
+
+    const entity = nearby[0];
+    
+    switch (entity.type) {
+      case EntityType.NPC:
+        if (entity.dialogue) {
+          const line = entity.dialogue[Math.floor(Math.random() * entity.dialogue.length)];
+          this.addMessage(`${entity.name}: "${line}"`, '#FFD700');
+        }
+        break;
+        
+      case EntityType.CHEST:
+        if (!entity.isOpen && entity.loot) {
+          entity.isOpen = true;
+          entity.char = '📭';
+          this.addMessage(`打开了宝箱！`, '#FFD700');
+          
+          entity.loot.forEach(itemId => {
+            const item = createItem(itemId);
+            if (item) {
+              this.addItemToInventory(item);
+              this.addMessage(`获得: ${item.name}`, '#00FF00');
+            }
+          });
+          
+          // 额外随机战利品
+          if (Math.random() < 0.3) {
+            const extraLoot = getRandomLoot();
+            if (extraLoot) {
+              this.addItemToInventory(extraLoot);
+              this.addMessage(`额外获得: ${extraLoot.name}`, '#00FF00');
+            }
+          }
+        } else if (entity.isOpen) {
+          this.addMessage('宝箱已经空了', '#808080');
+        }
+        break;
+    }
+    
+    this.processEnemyTurns();
+    this.turn++;
+    this.onUpdate();
+  }
+
+  /** 拾取物品 */
+  private pickupItem(): void {
+    const items = this.entities.filter(e => 
+      e.type === EntityType.ITEM && 
+      e.position.x === this.player.position.x && 
+      e.position.y === this.player.position.y
+    );
+
+    if (items.length === 0) {
+      this.addMessage('这里没有物品', '#808080');
+    } else {
+      items.forEach(entity => {
+        if (entity.loot) {
+          entity.loot.forEach(itemId => {
+            const item = createItem(itemId);
+            if (item && this.addItemToInventory(item)) {
+              this.addMessage(`拾取了 ${item.name}`, '#00FF00');
+            }
+          });
+        }
+        this.entities = this.entities.filter(e => e.id !== entity.id);
+      });
+    }
+    
+    this.processEnemyTurns();
+    this.turn++;
+    this.onUpdate();
+  }
+
+  /** 使用楼梯 */
+  private useStairs(): void {
+    const tile = this.map.tiles[this.player.position.x][this.player.position.y];
+    if (tile.char === '>') {
+      this.dungeonLevel++;
+      this.addMessage(`进入地下城第 ${this.dungeonLevel} 层...`, '#FFD700');
+      this.generateMap();
+      this.updateFOV();
+    } else {
+      this.addMessage('这里没有向下的楼梯', '#808080');
+    }
+    this.onUpdate();
+  }
+
+  /** 打开背包 */
+  private openInventory(): void {
+    this.state = GameState.INVENTORY;
+    this.selectedInventoryIndex = 0;
+    this.onUpdate();
+  }
+
+  /** 处理背包输入 */
+  private handleInventoryInput(key: string): void {
+    const filteredItems = this.getFilteredItems();
+    
+    switch (key) {
+      case 'arrowup':
+      case 'k':
+        this.selectedInventoryIndex = Math.max(0, this.selectedInventoryIndex - 1);
+        this.onUpdate();
+        break;
+      case 'arrowdown':
+      case 'j':
+        this.selectedInventoryIndex = Math.min(filteredItems.length - 1, this.selectedInventoryIndex + 1);
+        this.onUpdate();
+        break;
+      case 'u':
+        this.useSelectedItem();
+        break;
+      case 'e':
+        this.equipSelectedItem();
+        break;
+      case 'd':
+        this.dropSelectedItem();
+        break;
+      case 'tab':
+        this.switchInventoryFilter();
+        break;
+      case 'i':
+      case 'escape':
+        this.state = GameState.EXPLORE;
+        this.onUpdate();
+        break;
+    }
+  }
+
+  /** 获取过滤后的物品列表 */
+  private getFilteredItems(): InventorySlot[] {
+    if (!this.inventoryFilter) return this.inventory;
+    return this.inventory.filter(slot => slot.item.type === this.inventoryFilter);
+  }
+
+  /** 使用选中物品 */
+  private useSelectedItem(): void {
+    const filtered = this.getFilteredItems();
+    const slot = filtered[this.selectedInventoryIndex];
+    
+    if (!slot) return;
+    
+    if (slot.item.equippable) {
+      this.equipItem(slot.item);
+    } else if (slot.item.effects) {
+      this.applyItemEffects(slot.item.effects);
+      this.removeItemFromInventory(slot.item.id, 1);
+      this.addMessage(`使用了 ${slot.item.name}`, '#00FF00');
+    }
+    
+    this.onUpdate();
+  }
+
+  /** 装备/卸下选中物品 */
+  private equipSelectedItem(): void {
+    const filtered = this.getFilteredItems();
+    const slot = filtered[this.selectedInventoryIndex];
+    
+    if (!slot || !slot.item.equippable) return;
+    
+    this.equipItem(slot.item);
+    this.onUpdate();
+  }
+
+  /** 丢弃选中物品 */
+  private dropSelectedItem(): void {
+    const filtered = this.getFilteredItems();
+    const slot = filtered[this.selectedInventoryIndex];
+    
+    if (!slot) return;
+    
+    this.removeItemFromInventory(slot.item.id, 1);
+    this.addMessage(`丢弃了 ${slot.item.name}`, '#808080');
+    
+    if (this.selectedInventoryIndex >= this.getFilteredItems().length) {
+      this.selectedInventoryIndex = Math.max(0, this.getFilteredItems().length - 1);
+    }
+    
+    this.onUpdate();
+  }
+
+  /** 切换背包筛选 */
+  private switchInventoryFilter(): void {
+    const filters: (ItemType | null)[] = [
+      null, ItemType.WEAPON, ItemType.ARMOR, ItemType.CONSUMABLE, ItemType.MATERIAL
+    ];
+    const currentIndex = filters.indexOf(this.inventoryFilter);
+    this.inventoryFilter = filters[(currentIndex + 1) % filters.length];
+    this.selectedInventoryIndex = 0;
+    this.onUpdate();
+  }
+
+  /** 装备物品 */
+  private equipItem(item: Item): void {
+    if (!item.equippable || !item.equipSlot) return;
+    
+    const slotKey = item.equipSlot as keyof EquipmentSlots;
+    
+    // 卸下当前装备
+    if (this.equipment[slotKey]) {
+      this.addItemToInventory(this.equipment[slotKey]!);
+      this.addMessage(`卸下了 ${this.equipment[slotKey]!.name}`, '#808080');
+    }
+    
+    // 装备新物品
+    this.equipment[slotKey] = item;
+    this.removeItemFromInventory(item.id, 1);
+    this.addMessage(`装备了 ${item.name}`, '#00FF00');
+    this.onUpdate();
+  }
+
+  /** 应用物品效果 */
+  private applyItemEffects(effects: ItemEffect[]): void {
+    effects.forEach(effect => {
+      switch (effect.type) {
+        case 'heal':
+          const healAmount = Math.min(effect.value, this.player.maxHp - this.player.hp);
+          this.player.hp += healAmount;
+          this.addMessage(`恢复 ${healAmount} HP`, '#00FF00');
+          break;
+        case 'restore_mp':
+          const mpAmount = Math.min(effect.value, this.player.maxMp - this.player.mp);
+          this.player.mp += mpAmount;
+          this.addMessage(`恢复 ${mpAmount} MP`, '#00FF00');
+          break;
+      }
+    });
+  }
+
+  /** 从背包移除物品 */
+  private removeItemFromInventory(itemId: string, quantity: number): void {
+    const index = this.inventory.findIndex(slot => slot.item.id === itemId);
+    if (index === -1) return;
+    
+    const slot = this.inventory[index];
+    slot.quantity -= quantity;
+    
+    if (slot.quantity <= 0) {
+      this.inventory.splice(index, 1);
+    }
+  }
+
+  /** 获取装备属性加成 */
+  private getEquipmentStats(): { attack: number; defense: number; hp: number; mp: number; speed: number; critical: number } {
+    const stats = { attack: 0, defense: 0, hp: 0, mp: 0, speed: 0, critical: 0 };
+    
+    Object.values(this.equipment).forEach(item => {
+      if (item?.stats) {
+        stats.attack += item.stats.attack || 0;
+        stats.defense += item.stats.defense || 0;
+        stats.hp += item.stats.hp || 0;
+        stats.mp += item.stats.mp || 0;
+        stats.speed += item.stats.speed || 0;
+        stats.critical += item.stats.critical || 0;
+      }
+    });
+    
+    return stats;
+  }
+
+  /** 添加消息 */
+  addMessage(text: string, color: string = '#FFFFFF'): void {
+    this.messages.push({ text, color, turn: this.turn });
+    if (this.messages.length > 100) {
+      this.messages.shift();
+    }
+  }
+
+  // ============== Getter 方法 ==============
+  
+  getState(): GameState { return this.state; }
+  getMap(): GameMap { return this.map; }
+  getPlayer(): PlayerData { return this.player; }
+  getEntities(): Entity[] { return this.entities; }
+  getInventory(): InventorySlot[] { return this.inventory; }
+  getEquipment(): EquipmentSlots { return this.equipment; }
+  getGold(): number { return this.gold; }
+  getMessages(): LogMessage[] { return this.messages.slice(-10); }
+  getTurn(): number { return this.turn; }
+  getDungeonLevel(): number { return this.dungeonLevel; }
+  getSelectedInventoryIndex(): number { return this.selectedInventoryIndex; }
+  getFilteredInventory(): InventorySlot[] { return this.getFilteredItems(); }
+  getInventoryFilter(): ItemType | null { return this.inventoryFilter; }
+  isGameOver(): boolean { return this.gameOver; }
+  getConfig(): GameConfig { return this.config; }
 }
+
+export { ROT, TILES, RARITY_COLORS, ITEM_TYPE_ICONS };

@@ -1,21 +1,23 @@
 {
   "name": "cli-game-root",
-  "version": "1.0.0",
-  "description": "CLI Snake Game Monorepo",
+  "version": "2.0.0",
+  "description": "CLI Roguelike RPG Monorepo - Built with rot-js and ink",
   "private": true,
   "scripts": {
-    "build": "pnpm -r build",
+    "build": "pnpm --filter cli-game build",
     "dev": "pnpm --filter cli-game dev",
     "start": "pnpm --filter cli-game start",
-    "typecheck": "pnpm -r typecheck",
-    "clean": "pnpm -r clean && rm -rf node_modules",
-    "test": "pnpm -r test"
+    "typecheck": "pnpm --filter cli-game typecheck",
+    "clean": "pnpm --filter cli-game clean && rm -rf node_modules"
   },
   "keywords": [
     "cli",
     "game",
-    "snake",
-    "monorepo"
+    "roguelike",
+    "rpg",
+    "terminal",
+    "rot-js",
+    "ink"
   ],
   "license": "ISC",
   "packageManager": "pnpm@10.13.0",

@@ -20,13 +20,25 @@ importers:
 
   packages/cli-game:
     dependencies:
-      '@cli-game/engine-core':
-        specifier: workspace:*
-        version: link:../engine-core
-
-  packages/engine-core: {}
+      ink:
+        specifier: ^5.2.0
+        version: 5.2.1(@types/react@18.3.28)(bufferutil@4.1.0)(react-devtools-core@4.28.5(bufferutil@4.1.0)(utf-8-validate@6.0.6))(react@18.3.1)(utf-8-validate@6.0.6)
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      rot-js:
+        specifier: ^2.2.1
+        version: 2.2.1
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.18
+        version: 18.3.28
 
 packages:
+
+  '@alcalzone/ansi-tokenize@0.1.3':
+    resolution: {integrity: sha1-n4mDlWEyWo6aDDI2C40X5ISJmT8=, tarball: http://registry.m.jd.com/@alcalzone/ansi-tokenize/download/@alcalzone/ansi-tokenize-0.1.3.tgz}
+    engines: {node: '>=14.13.1'}
 
   '@esbuild/aix-ppc64@0.27.3':
     resolution: {integrity: sha1-gVs5Jn+b/9NAfqbDdqwylG4k+NI=, tarball: http://registry.m.jd.com/@esbuild/aix-ppc64/download/@esbuild/aix-ppc64-0.27.3.tgz}
@@ -135,25 +147,198 @@ packages:
   '@types/node@25.4.0':
     resolution: {integrity: sha1-8l2EZ5hNZmfMTBvh4veVk4NKrts=, tarball: http://registry.m.jd.com/@types/node/download/@types/node-25.4.0.tgz}
 
+  '@types/prop-types@15.7.15':
+    resolution: {integrity: sha1-5uWobWAr6spxzlFj+t9fldcJMcc=, tarball: http://registry.m.jd.com/@types/prop-types/download/@types/prop-types-15.7.15.tgz}
+
+  '@types/react@18.3.28':
+    resolution: {integrity: sha1-CoWxpyQ7QljZ9ib0N5e6GOtfh4E=, tarball: http://registry.m.jd.com/@types/react/download/@types/react-18.3.28.tgz}
+
+  ansi-escapes@7.3.0:
+    resolution: {integrity: sha1-U5W7dLIVCkodbjwlZfSuynjShic=, tarball: http://registry.m.jd.com/ansi-escapes/download/ansi-escapes-7.3.0.tgz}
+    engines: {node: '>=18'}
+
+  ansi-regex@6.2.2:
+    resolution: {integrity: sha1-YCFu6kZNhkWXzigyAAc4oFiWUME=, tarball: http://registry.m.jd.com/ansi-regex/download/ansi-regex-6.2.2.tgz}
+    engines: {node: '>=12'}
+
+  ansi-styles@6.2.3:
+    resolution: {integrity: sha1-wETV3MUhoHZBNHJZehrLHxA8QEE=, tarball: http://registry.m.jd.com/ansi-styles/download/ansi-styles-6.2.3.tgz}
+    engines: {node: '>=12'}
+
+  auto-bind@5.0.1:
+    resolution: {integrity: sha1-UNjmPqWh3dy15eNkUcGoJm/7sq4=, tarball: http://registry.m.jd.com/auto-bind/download/auto-bind-5.0.1.tgz}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
+  bufferutil@4.1.0:
+    resolution: {integrity: sha1-pGI1Qd0jhnYmuwigUewNLsC3ApQ=, tarball: http://registry.m.jd.com/bufferutil/download/bufferutil-4.1.0.tgz}
+    engines: {node: '>=6.14.2'}
+
+  chalk@5.6.2:
+    resolution: {integrity: sha1-sSOLbiPqM3r3HH+KKV21rwwViuo=, tarball: http://registry.m.jd.com/chalk/download/chalk-5.6.2.tgz}
+    engines: {node: ^12.17.0 || ^14.13 || >=16.0.0}
+
+  cli-boxes@3.0.0:
+    resolution: {integrity: sha1-caEMcW/uugBeRQTzYynvCxfPMUU=, tarball: http://registry.m.jd.com/cli-boxes/download/cli-boxes-3.0.0.tgz}
+    engines: {node: '>=10'}
+
+  cli-cursor@4.0.0:
+    resolution: {integrity: sha1-POz+NzS/T+Aqg2HL3A9v4oxqV+o=, tarball: http://registry.m.jd.com/cli-cursor/download/cli-cursor-4.0.0.tgz}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
+  cli-truncate@4.0.0:
+    resolution: {integrity: sha1-bMKKKST+6eJc6R6XPbVscGbmFyo=, tarball: http://registry.m.jd.com/cli-truncate/download/cli-truncate-4.0.0.tgz}
+    engines: {node: '>=18'}
+
+  code-excerpt@4.0.0:
+    resolution: {integrity: sha1-LefUbphRQ4XLAfezt0EyARX0yV4=, tarball: http://registry.m.jd.com/code-excerpt/download/code-excerpt-4.0.0.tgz}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
+  convert-to-spaces@2.0.1:
+    resolution: {integrity: sha1-YabJj4qmJsFrKWuGKpFBKjO862s=, tarball: http://registry.m.jd.com/convert-to-spaces/download/convert-to-spaces-2.0.1.tgz}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
+  csstype@3.2.3:
+    resolution: {integrity: sha1-7EjA8+mT5QZIyG2lWeJhCZXPmJo=, tarball: http://registry.m.jd.com/csstype/download/csstype-3.2.3.tgz}
+
+  emoji-regex@10.6.0:
+    resolution: {integrity: sha1-vz1uj3+P0ipl2XA0dbwBRzV6aw0=, tarball: http://registry.m.jd.com/emoji-regex/download/emoji-regex-10.6.0.tgz}
+
+  environment@1.1.0:
+    resolution: {integrity: sha1-jobGaxgPNjx6sxF4fgJZZl9FqfE=, tarball: http://registry.m.jd.com/environment/download/environment-1.1.0.tgz}
+    engines: {node: '>=18'}
+
+  es-toolkit@1.45.1:
+    resolution: {integrity: sha1-IbKLK9QxeP1MnJN8RF1byszOkHs=, tarball: http://registry.m.jd.com/es-toolkit/download/es-toolkit-1.45.1.tgz}
+
   esbuild@0.27.3:
     resolution: {integrity: sha1-WFnKjnCjr5VrJolc5JVNfnO9J6g=, tarball: http://registry.m.jd.com/esbuild/download/esbuild-0.27.3.tgz}
     engines: {node: '>=18'}
     hasBin: true
 
+  escape-string-regexp@2.0.0:
+    resolution: {integrity: sha1-owME6Z2qMuI7L9IPUbq9B8/8o0Q=, tarball: http://registry.m.jd.com/escape-string-regexp/download/escape-string-regexp-2.0.0.tgz}
+    engines: {node: '>=8'}
+
   fsevents@2.3.3:
     resolution: {integrity: sha1-ysZAd4XQNnWipeGlMFxpezR9kNY=, tarball: http://registry.m.jd.com/fsevents/download/fsevents-2.3.3.tgz}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
 
+  get-east-asian-width@1.5.0:
+    resolution: {integrity: sha1-znAI/jRe3PVJem9VfPpUvDGKnOc=, tarball: http://registry.m.jd.com/get-east-asian-width/download/get-east-asian-width-1.5.0.tgz}
+    engines: {node: '>=18'}
+
   get-tsconfig@4.13.6:
     resolution: {integrity: sha1-L7/aVYqYppGnmPEjr9lZFbrc6HY=, tarball: http://registry.m.jd.com/get-tsconfig/download/get-tsconfig-4.13.6.tgz}
 
+  indent-string@5.0.0:
+    resolution: {integrity: sha1-T9KYD8yvhiLRTGTWlPTPM8gZUaU=, tarball: http://registry.m.jd.com/indent-string/download/indent-string-5.0.0.tgz}
+    engines: {node: '>=12'}
+
+  ink@5.2.1:
+    resolution: {integrity: sha1-uepZ8NHqsrRWaQOzW1T9NDI9FpQ=, tarball: http://registry.m.jd.com/ink/download/ink-5.2.1.tgz}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/react': '>=18.0.0'
+      react: '>=18.0.0'
+      react-devtools-core: ^4.19.1
+
+  is-fullwidth-code-point@4.0.0:
+    resolution: {integrity: sha1-+uMWfHKedGP4RhzlErCApJJoqog=, tarball: http://registry.m.jd.com/is-fullwidth-code-point/download/is-fullwidth-code-point-4.0.0.tgz}
+    engines: {node: '>=12'}
+
+  is-fullwidth-code-point@5.1.0:
+    resolution: {integrity: sha1-BGsqbU9rFWsiM9MgfUtal4OZm5g=, tarball: http://registry.m.jd.com/is-fullwidth-code-point/download/is-fullwidth-code-point-5.1.0.tgz}
+    engines: {node: '>=18'}
+
+  is-in-ci@1.0.0:
+    resolution: {integrity: sha1-moa72n5CxhKZAuBXTFSwGPu2q4g=, tarball: http://registry.m.jd.com/is-in-ci/download/is-in-ci-1.0.0.tgz}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  js-tokens@4.0.0:
+    resolution: {integrity: sha1-GSA/tZmR35jjoocFDUZHzerzJJk=, tarball: http://registry.m.jd.com/js-tokens/download/js-tokens-4.0.0.tgz}
+
+  loose-envify@1.4.0:
+    resolution: {integrity: sha1-ce5R+nvkyuwaY4OffmgtgTLTDK8=, tarball: http://registry.m.jd.com/loose-envify/download/loose-envify-1.4.0.tgz}
+    hasBin: true
+
+  mimic-fn@2.1.0:
+    resolution: {integrity: sha1-ftLCzMyvhNP/y3pptXcR/CCDQBs=, tarball: http://registry.m.jd.com/mimic-fn/download/mimic-fn-2.1.0.tgz}
+    engines: {node: '>=6'}
+
+  node-gyp-build@4.8.4:
+    resolution: {integrity: sha1-inDuhUZK5SMndyqQ1mxgd6kAz8g=, tarball: http://registry.m.jd.com/node-gyp-build/download/node-gyp-build-4.8.4.tgz}
+    hasBin: true
+
+  onetime@5.1.2:
+    resolution: {integrity: sha1-0Oluu1awdHbfHdnEgG5SN5hcpF4=, tarball: http://registry.m.jd.com/onetime/download/onetime-5.1.2.tgz}
+    engines: {node: '>=6'}
+
+  patch-console@2.0.0:
+    resolution: {integrity: sha1-kCP0ZlhA5m9A6c53T5BKYxZ0M7s=, tarball: http://registry.m.jd.com/patch-console/download/patch-console-2.0.0.tgz}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
+  react-devtools-core@4.28.5:
+    resolution: {integrity: sha1-yEQrkfBozfDImcVDkH9/J9ecJQg=, tarball: http://registry.m.jd.com/react-devtools-core/download/react-devtools-core-4.28.5.tgz}
+
+  react-reconciler@0.29.2:
+    resolution: {integrity: sha1-js+vymNUmk9PPkweBJ3VrZrDpU8=, tarball: http://registry.m.jd.com/react-reconciler/download/react-reconciler-0.29.2.tgz}
+    engines: {node: '>=0.10.0'}
+    peerDependencies:
+      react: ^18.3.1
+
+  react@18.3.1:
+    resolution: {integrity: sha1-SauJIAnFOTNiW9FrJTP8dUyrKJE=, tarball: http://registry.m.jd.com/react/download/react-18.3.1.tgz}
+    engines: {node: '>=0.10.0'}
+
   resolve-pkg-maps@1.0.0:
     resolution: {integrity: sha1-YWs9wsVwVrVYjDHN9LPWTbEzcg8=, tarball: http://registry.m.jd.com/resolve-pkg-maps/download/resolve-pkg-maps-1.0.0.tgz}
+
+  restore-cursor@4.0.0:
+    resolution: {integrity: sha1-UZVgpDGJdQlt725gnUQQDtqkzLk=, tarball: http://registry.m.jd.com/restore-cursor/download/restore-cursor-4.0.0.tgz}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
+  rot-js@2.2.1:
+    resolution: {integrity: sha1-uAuUg28JrYBenmAGZMRWDfj2ft4=, tarball: http://registry.m.jd.com/rot-js/download/rot-js-2.2.1.tgz}
+
+  scheduler@0.23.2:
+    resolution: {integrity: sha1-QUumSjsoKJLpRM8hCOzAeNEVzcM=, tarball: http://registry.m.jd.com/scheduler/download/scheduler-0.23.2.tgz}
+
+  shell-quote@1.8.3:
+    resolution: {integrity: sha1-VeQO8zz1xomQI1Oj2M0aZyXwi0s=, tarball: http://registry.m.jd.com/shell-quote/download/shell-quote-1.8.3.tgz}
+    engines: {node: '>= 0.4'}
+
+  signal-exit@3.0.7:
+    resolution: {integrity: sha1-qaF2f4r4QVURTqq9c/mSc8j1mtk=, tarball: http://registry.m.jd.com/signal-exit/download/signal-exit-3.0.7.tgz}
+
+  slice-ansi@5.0.0:
+    resolution: {integrity: sha1-tzBjxXqpb5zYgWVLFSlNldKFxCo=, tarball: http://registry.m.jd.com/slice-ansi/download/slice-ansi-5.0.0.tgz}
+    engines: {node: '>=12'}
+
+  slice-ansi@7.1.2:
+    resolution: {integrity: sha1-rfe+cKptchYtkHzQ5tXBH1B7VAM=, tarball: http://registry.m.jd.com/slice-ansi/download/slice-ansi-7.1.2.tgz}
+    engines: {node: '>=18'}
+
+  stack-utils@2.0.6:
+    resolution: {integrity: sha1-qvB0gWnAL8M8gjKrzPkz9Uocw08=, tarball: http://registry.m.jd.com/stack-utils/download/stack-utils-2.0.6.tgz}
+    engines: {node: '>=10'}
+
+  string-width@7.2.0:
+    resolution: {integrity: sha1-tbuOIWXOJ11NQ0dt0nAK2Qkdttw=, tarball: http://registry.m.jd.com/string-width/download/string-width-7.2.0.tgz}
+    engines: {node: '>=18'}
+
+  strip-ansi@7.2.0:
+    resolution: {integrity: sha1-0iomlSKDamJ6+NBLXD/Sx/o+MuM=, tarball: http://registry.m.jd.com/strip-ansi/download/strip-ansi-7.2.0.tgz}
+    engines: {node: '>=12'}
 
   tsx@4.21.0:
     resolution: {integrity: sha1-Mqps8XSB4zb3Vhleb+BNrj5jCLE=, tarball: http://registry.m.jd.com/tsx/download/tsx-4.21.0.tgz}
     engines: {node: '>=18.0.0'}
     hasBin: true
+
+  type-fest@4.41.0:
+    resolution: {integrity: sha1-auHI5XMSc8K/H1itOcuuLJGkbFg=, tarball: http://registry.m.jd.com/type-fest/download/type-fest-4.41.0.tgz}
+    engines: {node: '>=16'}
 
   typescript@5.9.3:
     resolution: {integrity: sha1-W09Z4VMQqxeiFvXWz1PuR27eZw8=, tarball: http://registry.m.jd.com/typescript/download/typescript-5.9.3.tgz}
@@ -163,7 +348,41 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha1-KTV6iee3ykrvO/D9P9DNc4hCKek=, tarball: http://registry.m.jd.com/undici-types/download/undici-types-7.18.2.tgz}
 
+  utf-8-validate@6.0.6:
+    resolution: {integrity: sha1-ioQsmxWvP2Mjo9XtXrnmHSCNjCI=, tarball: http://registry.m.jd.com/utf-8-validate/download/utf-8-validate-6.0.6.tgz}
+    engines: {node: '>=6.14.2'}
+
+  widest-line@5.0.0:
+    resolution: {integrity: sha1-t0gmoeSAeDNF8M2QYbSXU8nacNA=, tarball: http://registry.m.jd.com/widest-line/download/widest-line-5.0.0.tgz}
+    engines: {node: '>=18'}
+
+  wrap-ansi@9.0.2:
+    resolution: {integrity: sha1-lWgy3qlJQwbm0gnrhxZDu4c9fJg=, tarball: http://registry.m.jd.com/wrap-ansi/download/wrap-ansi-9.0.2.tgz}
+    engines: {node: '>=18'}
+
+  ws@7.5.10:
+    resolution: {integrity: sha1-WLXCDcKBYz9sGRE/ObNJvYvVWNk=, tarball: http://registry.m.jd.com/ws/download/ws-7.5.10.tgz}
+    engines: {node: '>=8.3.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: ^5.0.2
+
+  ws@8.19.0:
+    resolution: {integrity: sha1-3cK9+lua2GAgT1pypIY6iJX9jIs=, tarball: http://registry.m.jd.com/ws/download/ws-8.19.0.tgz}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+
+  yoga-layout@3.2.1:
+    resolution: {integrity: sha1-0tG6BvDoHC62UMPlrYsLSt3h6EM=, tarball: http://registry.m.jd.com/yoga-layout/download/yoga-layout-3.2.1.tgz}
+
 snapshots:
+
+  '@alcalzone/ansi-tokenize@0.1.3':
+    dependencies:
+      ansi-styles: 6.2.3
+      is-fullwidth-code-point: 4.0.0
 
   '@esbuild/aix-ppc64@0.27.3':
     optional: true
@@ -247,6 +466,54 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
+  '@types/prop-types@15.7.15': {}
+
+  '@types/react@18.3.28':
+    dependencies:
+      '@types/prop-types': 15.7.15
+      csstype: 3.2.3
+
+  ansi-escapes@7.3.0:
+    dependencies:
+      environment: 1.1.0
+
+  ansi-regex@6.2.2: {}
+
+  ansi-styles@6.2.3: {}
+
+  auto-bind@5.0.1: {}
+
+  bufferutil@4.1.0:
+    dependencies:
+      node-gyp-build: 4.8.4
+
+  chalk@5.6.2: {}
+
+  cli-boxes@3.0.0: {}
+
+  cli-cursor@4.0.0:
+    dependencies:
+      restore-cursor: 4.0.0
+
+  cli-truncate@4.0.0:
+    dependencies:
+      slice-ansi: 5.0.0
+      string-width: 7.2.0
+
+  code-excerpt@4.0.0:
+    dependencies:
+      convert-to-spaces: 2.0.1
+
+  convert-to-spaces@2.0.1: {}
+
+  csstype@3.2.3: {}
+
+  emoji-regex@10.6.0: {}
+
+  environment@1.1.0: {}
+
+  es-toolkit@1.45.1: {}
+
   esbuild@0.27.3:
     optionalDependencies:
       '@esbuild/aix-ppc64': 0.27.3
@@ -276,14 +543,134 @@ snapshots:
       '@esbuild/win32-ia32': 0.27.3
       '@esbuild/win32-x64': 0.27.3
 
+  escape-string-regexp@2.0.0: {}
+
   fsevents@2.3.3:
     optional: true
+
+  get-east-asian-width@1.5.0: {}
 
   get-tsconfig@4.13.6:
     dependencies:
       resolve-pkg-maps: 1.0.0
 
+  indent-string@5.0.0: {}
+
+  ink@5.2.1(@types/react@18.3.28)(bufferutil@4.1.0)(react-devtools-core@4.28.5(bufferutil@4.1.0)(utf-8-validate@6.0.6))(react@18.3.1)(utf-8-validate@6.0.6):
+    dependencies:
+      '@alcalzone/ansi-tokenize': 0.1.3
+      '@types/react': 18.3.28
+      ansi-escapes: 7.3.0
+      ansi-styles: 6.2.3
+      auto-bind: 5.0.1
+      chalk: 5.6.2
+      cli-boxes: 3.0.0
+      cli-cursor: 4.0.0
+      cli-truncate: 4.0.0
+      code-excerpt: 4.0.0
+      es-toolkit: 1.45.1
+      indent-string: 5.0.0
+      is-in-ci: 1.0.0
+      patch-console: 2.0.0
+      react: 18.3.1
+      react-devtools-core: 4.28.5(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      react-reconciler: 0.29.2(react@18.3.1)
+      scheduler: 0.23.2
+      signal-exit: 3.0.7
+      slice-ansi: 7.1.2
+      stack-utils: 2.0.6
+      string-width: 7.2.0
+      type-fest: 4.41.0
+      widest-line: 5.0.0
+      wrap-ansi: 9.0.2
+      ws: 8.19.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      yoga-layout: 3.2.1
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  is-fullwidth-code-point@4.0.0: {}
+
+  is-fullwidth-code-point@5.1.0:
+    dependencies:
+      get-east-asian-width: 1.5.0
+
+  is-in-ci@1.0.0: {}
+
+  js-tokens@4.0.0: {}
+
+  loose-envify@1.4.0:
+    dependencies:
+      js-tokens: 4.0.0
+
+  mimic-fn@2.1.0: {}
+
+  node-gyp-build@4.8.4: {}
+
+  onetime@5.1.2:
+    dependencies:
+      mimic-fn: 2.1.0
+
+  patch-console@2.0.0: {}
+
+  react-devtools-core@4.28.5(bufferutil@4.1.0)(utf-8-validate@6.0.6):
+    dependencies:
+      shell-quote: 1.8.3
+      ws: 7.5.10(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  react-reconciler@0.29.2(react@18.3.1):
+    dependencies:
+      loose-envify: 1.4.0
+      react: 18.3.1
+      scheduler: 0.23.2
+
+  react@18.3.1:
+    dependencies:
+      loose-envify: 1.4.0
+
   resolve-pkg-maps@1.0.0: {}
+
+  restore-cursor@4.0.0:
+    dependencies:
+      onetime: 5.1.2
+      signal-exit: 3.0.7
+
+  rot-js@2.2.1: {}
+
+  scheduler@0.23.2:
+    dependencies:
+      loose-envify: 1.4.0
+
+  shell-quote@1.8.3: {}
+
+  signal-exit@3.0.7: {}
+
+  slice-ansi@5.0.0:
+    dependencies:
+      ansi-styles: 6.2.3
+      is-fullwidth-code-point: 4.0.0
+
+  slice-ansi@7.1.2:
+    dependencies:
+      ansi-styles: 6.2.3
+      is-fullwidth-code-point: 5.1.0
+
+  stack-utils@2.0.6:
+    dependencies:
+      escape-string-regexp: 2.0.0
+
+  string-width@7.2.0:
+    dependencies:
+      emoji-regex: 10.6.0
+      get-east-asian-width: 1.5.0
+      strip-ansi: 7.2.0
+
+  strip-ansi@7.2.0:
+    dependencies:
+      ansi-regex: 6.2.2
 
   tsx@4.21.0:
     dependencies:
@@ -292,6 +679,34 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
+  type-fest@4.41.0: {}
+
   typescript@5.9.3: {}
 
   undici-types@7.18.2: {}
+
+  utf-8-validate@6.0.6:
+    dependencies:
+      node-gyp-build: 4.8.4
+
+  widest-line@5.0.0:
+    dependencies:
+      string-width: 7.2.0
+
+  wrap-ansi@9.0.2:
+    dependencies:
+      ansi-styles: 6.2.3
+      string-width: 7.2.0
+      strip-ansi: 7.2.0
+
+  ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@6.0.6):
+    dependencies:
+      bufferutil: 4.1.0
+      utf-8-validate: 6.0.6
+
+  ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@6.0.6):
+    dependencies:
+      bufferutil: 4.1.0
+      utf-8-validate: 6.0.6
+
+  yoga-layout@3.2.1: {}
