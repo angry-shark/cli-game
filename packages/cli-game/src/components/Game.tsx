@@ -124,6 +124,11 @@ export default function GameComponent({ game }: GameComponentProps) {
   if (state === GameState.INVENTORY) {
     return <InventoryView game={game} />;
   }
+  
+  // 渲染加点界面
+  if (state === GameState.LEVEL_UP) {
+    return <LevelUpView game={game} />;
+  }
 
   // 渲染主游戏界面（探索模式）
   return (
@@ -205,7 +210,7 @@ export default function GameComponent({ game }: GameComponentProps) {
       {/* 控制提示 */}
       <Box marginTop={1}>
         <Text color="gray">
-          [WASD/↑↓←→]移动 [E]互动 [G]拾取 [I]背包 [🔽]下楼 [ESC]退出
+          [WASD/↑↓←→]移动 [E]互动/下楼梯 [G]拾取 [I]背包 [ESC]退出
         </Text>
       </Box>
     </Box>
@@ -250,11 +255,15 @@ function PlayerPanel({ player, game }: { player: ReturnType<Game['getPlayer']>; 
       <Text>等级: {player.level}</Text>
       <Text>经验: {player.exp}/{player.maxExp}</Text>
       
+      {player.statPoints > 0 && (
+        <Text color="yellow" bold>⚡ 属性点: {player.statPoints}</Text>
+      )}
+      
       <Box marginY={1} />
       
       <Text bold underline>属性</Text>
-      <Text>攻击: {player.attack + equipStats.attack}</Text>
-      <Text>防御: {player.defense + equipStats.defense}</Text>
+      <Text>攻击: {player.baseAttack} <Text dimColor>(+{equipStats.attack})</Text> = {player.attack}</Text>
+      <Text>防御: {player.baseDefense} <Text dimColor>(+{equipStats.defense})</Text> = {player.defense}</Text>
       <Text>速度: {equipStats.speed}</Text>
       <Text>暴击: {equipStats.critical}%</Text>
       
@@ -396,9 +405,10 @@ function CombatView({ game }: { game: Game }) {
   const enemies = game.getCombatEnemies();
   const combatState = game.getCombatState();
   const messages = game.getMessages();
+  const skills = game.getAvailableSkills();
 
   return (
-    <Box flexDirection="column" alignItems="center" justifyContent="center" height={20}>
+    <Box flexDirection="column" alignItems="center" justifyContent="center" height={24}>
       <Text bold color="red">⚔️ 战斗 ⚔️</Text>
       
       <Box marginY={1}>
@@ -413,6 +423,17 @@ function CombatView({ game }: { game: Game }) {
           <Text>🧙</Text>
           <Text>{player.name}</Text>
           <Text color="green">HP: {player.hp}/{player.maxHp}</Text>
+          <Text color="blue">MP: {player.mp}/{player.maxMp}</Text>
+          {/* 显示玩家buff */}
+          {player.buffs.length > 0 && (
+            <Box>
+              {player.buffs.map((buff, i) => (
+                <Text key={i} color="yellow" dimColor>
+                  {buff.type === 'attack' ? '⚔️' : buff.type === 'defense' ? '🛡️' : '✨'}({buff.duration})
+                </Text>
+              ))}
+            </Box>
+          )}
         </Box>
         
         <Text>VS</Text>
@@ -428,11 +449,49 @@ function CombatView({ game }: { game: Game }) {
         </Box>
       </Box>
 
+      {/* 技能列表 */}
+      {combatState === CombatState.PLAYER_TURN && (
+        <Box marginTop={1} flexDirection="column" alignItems="center">
+          <Text bold>技能</Text>
+          <Box>
+            {skills.slice(0, 4).map((skill, i) => {
+              // 判断技能状态
+              const isOnCooldown = skill.currentCooldown > 0;
+              const isInsufficientMp = player.mp < skill.mpCost;
+              const isAvailable = !isOnCooldown && !isInsufficientMp;
+              
+              // 根据状态选择颜色
+              let statusColor = 'green';  // 可用
+              let statusText = `${skill.mpCost}MP`;
+              
+              if (isOnCooldown) {
+                statusColor = 'red';  // 冷却中
+                statusText = `CD:${skill.currentCooldown}`;
+              } else if (isInsufficientMp) {
+                statusColor = 'yellow';  // 法力不足
+                statusText = `!${skill.mpCost}MP`;
+              }
+              
+              return (
+                <Box key={i} marginX={1} flexDirection="column" alignItems="center">
+                  <Text color={statusColor}>
+                    [{i + 1}]{skill.icon} {skill.name}
+                  </Text>
+                  <Text color={statusColor} dimColor>
+                    {statusText}
+                  </Text>
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+      )}
+
       {/* 操作提示 */}
       {combatState === CombatState.PLAYER_TURN && (
         <Box marginTop={1}>
           <Text color="gray">
-            [A]攻击 [D]防御 [I]物品 [R]撤退
+            [A]攻击 [D]防御 [1-4]技能 [I]物品 [R]撤退
           </Text>
         </Box>
       )}
@@ -444,6 +503,69 @@ function CombatView({ game }: { game: Game }) {
             {msg.text}
           </Text>
         ))}
+      </Box>
+    </Box>
+  );
+}
+
+/** 加点界面 */
+function LevelUpView({ game }: { game: Game }) {
+  const player = game.getPlayer();
+  const equipment = game.getEquipment();
+  const equipStats = getEquipmentStats(equipment);
+  
+  return (
+    <Box flexDirection="column" alignItems="center" justifyContent="center" height={24}>
+      <Text bold color="#FFD700">🎉 升级！🎉</Text>
+      
+      <Box marginY={1}>
+        <Text>当前等级: <Text bold color="yellow">{player.level}</Text></Text>
+      </Box>
+      
+      <Box marginY={1} borderStyle="single" paddingX={2} paddingY={1}>
+        <Text bold color="cyan">剩余属性点: {player.statPoints}</Text>
+      </Box>
+      
+      <Box marginTop={1} flexDirection="column">
+        <Text bold underline>选择要提升的属性：</Text>
+        
+        <Box marginTop={1} flexDirection="column">
+          <Box>
+            <Text color="green">[1] ⚔️  攻击力</Text>
+            <Text>  当前: {player.baseAttack} (装备+{equipStats.attack}) = {player.attack}</Text>
+          </Box>
+          <Text dimColor>    +2 攻击力</Text>
+        </Box>
+        
+        <Box marginTop={1} flexDirection="column">
+          <Box>
+            <Text color="blue">[2] 🛡️  防御力</Text>
+            <Text>  当前: {player.baseDefense} (装备+{equipStats.defense}) = {player.defense}</Text>
+          </Box>
+          <Text dimColor>    +1 防御力</Text>
+        </Box>
+        
+        <Box marginTop={1} flexDirection="column">
+          <Box>
+            <Text color="red">[3] 💚  生命上限</Text>
+            <Text>  当前: {player.baseMaxHp} (装备+{equipStats.hp}) = {player.maxHp}</Text>
+          </Box>
+          <Text dimColor>    +15 生命上限</Text>
+        </Box>
+        
+        <Box marginTop={1} flexDirection="column">
+          <Box>
+            <Text color="magenta">[4] 💙  法力上限</Text>
+            <Text>  当前: {player.baseMaxMp} (装备+{equipStats.mp}) = {player.maxMp}</Text>
+          </Box>
+          <Text dimColor>    +10 法力上限</Text>
+        </Box>
+      </Box>
+      
+      <Box marginTop={2}>
+        <Text color="gray">
+          {player.statPoints > 0 ? '[1-4]分配点数 [Enter]确认' : '按任意键继续'}
+        </Text>
       </Box>
     </Box>
   );

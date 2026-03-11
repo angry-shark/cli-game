@@ -63,16 +63,13 @@ function StartMenu({ onStart }: { onStart: () => void }) {
         <Text>{'║    WASD / 方向键  - 移动                 ║'}</Text>
       </Box>
       <Box>
-        <Text>{'║    E              - 互动/攻击            ║'}</Text>
+        <Text>{'║    E              - 互动/攻击/下楼梯     ║'}</Text>
       </Box>
       <Box>
         <Text>{'║    G              - 拾取物品             ║'}</Text>
       </Box>
       <Box>
         <Text>{'║    I              - 打开背包             ║'}</Text>
-      </Box>
-      <Box>
-        <Text>{'║    🔽             - 使用楼梯             ║'}</Text>
       </Box>
       <Box>
         <Text>{'║    ESC / Q        - 退出                 ║'}</Text>

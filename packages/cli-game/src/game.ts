@@ -7,9 +7,11 @@ import * as ROT from 'rot-js';
 import {
   Point2D, GameState, EntityType, Entity, PlayerData,
   Tile, GameMap, LogMessage, InventorySlot, EquipmentSlots,
-  GameConfig, Item, ItemType, ItemEffect, CombatState
+  GameConfig, Item, ItemType, ItemEffect, CombatState,
+  Skill, Buff, PlayerSkills
 } from './types.js';
 import { createItem, getRandomLoot, RARITY_COLORS, ITEM_TYPE_ICONS } from './items.js';
+import { createSkill, getEnemyDefaultSkill, PLAYER_SKILLS } from './skills.js';
 
 /** 默认游戏配置 */
 const DEFAULT_CONFIG: GameConfig = {
@@ -112,7 +114,18 @@ export class Game {
       attack: 10,
       defense: 5,
       gold: 0,
-      position: { x: 0, y: 0 }
+      position: { x: 0, y: 0 },
+      skills: {
+        learned: ['slash', 'first_aid', 'focus'],
+        equipped: ['slash', 'first_aid', 'focus'],
+        cooldowns: {}
+      },
+      buffs: [],
+      statPoints: 0,
+      baseAttack: 10,
+      baseDefense: 5,
+      baseMaxHp: 100,
+      baseMaxMp: 50
     };
     
     // 生成地图
@@ -184,12 +197,31 @@ export class Game {
       };
     }
 
-    // 放置楼梯（在最后一个房间）
-    if (rooms.length > 1) {
+    // 放置楼梯（在最后一个房间，如果只有一个房间则在角落）
+    if (rooms.length > 0) {
       const lastRoom = rooms[rooms.length - 1];
-      const stairsX = Math.floor((lastRoom.getLeft() + lastRoom.getRight()) / 2);
-      const stairsY = Math.floor((lastRoom.getTop() + lastRoom.getBottom()) / 2);
-      map.tiles[stairsX][stairsY] = TILES.STAIRS_DOWN;
+      // 放在房间右下角，避免与玩家起始位置冲突
+      let stairsX = lastRoom.getRight() - 1;
+      let stairsY = lastRoom.getBottom() - 1;
+      
+      // 确保楼梯位置是地板
+      if (map.tiles[stairsX][stairsY].walkable) {
+        map.tiles[stairsX][stairsY] = TILES.STAIRS_DOWN;
+      } else {
+        // 如果右下角不是地板，找第一个可用的地板位置
+        for (let y = lastRoom.getTop() + 1; y < lastRoom.getBottom(); y++) {
+          for (let x = lastRoom.getLeft() + 1; x < lastRoom.getRight(); x++) {
+            if (map.tiles[x][y].walkable && 
+                !(x === this.player.position.x && y === this.player.position.y)) {
+              map.tiles[x][y] = TILES.STAIRS_DOWN;
+              stairsX = x;
+              stairsY = y;
+              break;
+            }
+          }
+          if (map.tiles[stairsX][stairsY].char === '>') break;
+        }
+      }
     }
 
     this.map = map;
@@ -236,6 +268,13 @@ export class Game {
     const templates = Object.entries(ENTITY_TEMPLATES).filter(([_, t]) => 'isHostile' in t) as [string, EnemyTemplate][];
     const [key, template] = templates[Math.floor(Math.random() * templates.length)];
     
+    // 获取敌人技能
+    const defaultSkill = getEnemyDefaultSkill(key);
+    const skills: Skill[] = [];
+    if (defaultSkill) {
+      skills.push(defaultSkill);
+    }
+    
     this.entities.push({
       id: `enemy_${this.turn}_${x}_${y}`,
       type: EntityType.ENEMY,
@@ -247,7 +286,11 @@ export class Game {
       maxHp: template.hp,
       attack: template.attack,
       defense: template.defense,
-      isHostile: true
+      isHostile: true,
+      skills: skills,
+      buffs: [],
+      mp: 0,
+      maxMp: 0
     });
   }
 
@@ -383,10 +426,64 @@ export class Game {
       case GameState.INVENTORY:
         this.handleInventoryInput(key);
         break;
+      case GameState.LEVEL_UP:
+        this.handleLevelUpInput(key);
+        break;
       case GameState.MESSAGE:
         this.state = this.inCombat ? GameState.COMBAT : GameState.EXPLORE;
         this.onUpdate();
         break;
+    }
+  }
+  
+  /** 处理加点输入 */
+  private handleLevelUpInput(key: string): void {
+    if (this.player.statPoints <= 0) {
+      this.state = GameState.EXPLORE;
+      this.onUpdate();
+      return;
+    }
+    
+    switch (key) {
+      case '1': // 加攻击
+        this.player.baseAttack += 2;
+        this.player.statPoints--;
+        this.addMessage('⚔️ 攻击力 +2', '#FFD700');
+        break;
+      case '2': // 加防御
+        this.player.baseDefense += 1;
+        this.player.statPoints--;
+        this.addMessage('🛡️ 防御力 +1', '#FFD700');
+        break;
+      case '3': // 加生命
+        this.player.baseMaxHp += 15;
+        this.player.hp += 15;
+        this.player.statPoints--;
+        this.addMessage('💚 生命上限 +15', '#FFD700');
+        break;
+      case '4': // 加法力
+        this.player.baseMaxMp += 10;
+        this.player.mp += 10;
+        this.player.statPoints--;
+        this.addMessage('💙 法力上限 +10', '#FFD700');
+        break;
+      case 'enter':
+      case 'escape':
+        // 确认，返回探索
+        this.state = GameState.EXPLORE;
+        this.addMessage('加点完成！', '#00FF00');
+        break;
+    }
+    
+    // 更新属性
+    this.updatePlayerStats();
+    this.onUpdate();
+    
+    // 如果没有点数了，自动返回
+    if (this.player.statPoints <= 0 && this.state === GameState.LEVEL_UP) {
+      this.state = GameState.EXPLORE;
+      this.addMessage('所有属性点已分配！', '#00FF00');
+      this.onUpdate();
     }
   }
 
@@ -424,9 +521,6 @@ export class Game {
         return;
       case 'g':
         this.pickupItemExplore();
-        return;
-      case '>':
-        this.useStairs();
         return;
       case 'escape':
       case 'q':
@@ -540,6 +634,22 @@ export class Game {
       case 'arrowright':
         this.combatDefend();
         break;
+      case 's':
+        // 打开技能选择界面
+        this.state = GameState.INVENTORY; // 暂时用背包界面代替技能选择
+        this.onUpdate();
+        break;
+      case '1':
+      case '2':
+      case '3':
+      case '4':
+        // 直接使用技能槽
+        const skillIndex = parseInt(key) - 1;
+        const skills = this.getAvailableSkills();
+        if (skillIndex < skills.length) {
+          this.useSkill(skills[skillIndex].id, this.combatEnemies[0]);
+        }
+        break;
       case 'i':
         this.openInventory();
         break;
@@ -561,7 +671,7 @@ export class Game {
     
     // 攻击第一个敌人
     const target = this.combatEnemies[0];
-    const damage = Math.max(1, this.player.attack + this.getEquipmentStats().attack - (target.defense || 0));
+    const damage = Math.max(1, this.getPlayerAttack() - (target.defense || 0));
     target.hp! -= damage;
     
     this.addMessage(`你攻击了 ${target.name}，造成 ${damage} 点伤害`, '#FFFFFF');
@@ -628,14 +738,35 @@ export class Game {
 
   /** 处理战斗中的敌人回合 */
   private async processCombatEnemyTurns(): Promise<void> {
+    // 处理玩家buff（中毒等）
+    this.processBuffs();
+    
+    // 检查玩家是否死亡
+    if (this.player.hp <= 0) {
+      this.player.hp = 0;
+      this.gameOver = true;
+      this.state = GameState.GAME_OVER;
+      this.addMessage('你被击败了！游戏结束', '#FF0000');
+      this.onUpdate();
+      return;
+    }
+    
     for (const enemy of this.combatEnemies) {
       if (this.gameOver) break;
       
-      // 敌人攻击
-      const damage = Math.max(1, (enemy.attack || 5) - this.player.defense - this.getEquipmentStats().defense);
-      this.player.hp -= damage;
-      this.addMessage(`${enemy.name} 攻击了你，造成 ${damage} 点伤害`, '#FF0000');
+      // 检查眩晕
+      const isStunned = enemy.buffs?.some(b => b.type === 'stun');
+      if (isStunned) {
+        this.addMessage(`${enemy.name} 眩晕中，无法行动`, '#FFFF00');
+        this.onUpdate();
+        await this.delay(this.enemyTurnDelay);
+        continue;
+      }
       
+      // 敌人使用技能或普通攻击
+      this.enemyUseSkill(enemy);
+      
+      // 检查玩家死亡
       if (this.player.hp <= 0) {
         this.player.hp = 0;
         this.gameOver = true;
@@ -648,6 +779,9 @@ export class Game {
       this.onUpdate();
       await this.delay(this.enemyTurnDelay);
     }
+    
+    // 减少所有冷却
+    this.reduceCooldowns();
     
     // 敌人回合结束，切换回玩家回合
     if (!this.gameOver && this.combatEnemies.length > 0) {
@@ -663,22 +797,61 @@ export class Game {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  /** 升级 */
+  /** 升级 - 使用基础属性并触发加点 */
   private levelUp(): void {
     this.player.level++;
     this.player.exp = 0;
     this.player.maxExp = Math.floor(this.player.maxExp * 1.5);
-    this.player.maxHp += 20;
+    
+    // 获得属性点
+    const points = 3;
+    this.player.statPoints += points;
+    
+    // 基础属性小幅增长（来自等级提升本身）
+    this.player.baseMaxHp += 10;
+    this.player.baseMaxMp += 5;
+    
+    // 更新当前属性
+    this.updatePlayerStats();
+    
+    // 回满状态
     this.player.hp = this.player.maxHp;
-    this.player.maxMp += 10;
     this.player.mp = this.player.maxMp;
-    this.player.attack += 3;
-    this.player.defense += 2;
-    this.addMessage(`升级了！等级提升到 ${this.player.level}`, '#FFD700');
+    
+    this.addMessage(`🎉 升级了！等级 ${this.player.level}，获得 ${points} 属性点！`, '#FFD700');
+    
+    // 进入加点界面
+    if (this.player.statPoints > 0) {
+      this.state = GameState.LEVEL_UP;
+    }
+    
+    this.onUpdate();
+  }
+  
+  /** 更新玩家属性（基础+装备） */
+  private updatePlayerStats(): void {
+    const equipStats = this.getEquipmentStats();
+    
+    this.player.maxHp = this.player.baseMaxHp + equipStats.hp;
+    this.player.maxMp = this.player.baseMaxMp + equipStats.mp;
+    this.player.attack = this.player.baseAttack + equipStats.attack;
+    this.player.defense = this.player.baseDefense + equipStats.defense;
+    
+    // 确保当前HP/MP不超过上限
+    this.player.hp = Math.min(this.player.hp, this.player.maxHp);
+    this.player.mp = Math.min(this.player.mp, this.player.maxMp);
   }
 
   /** 交互 */
   private interact(): void {
+    // 首先检查是否站在楼梯上
+    const tile = this.map.tiles[this.player.position.x][this.player.position.y];
+    if (tile.char === '▼ ' || tile.char.includes('▼')) {
+      this.useStairs();
+      return;
+    }
+    
+    // 检查附近的可互动实体
     const nearby = this.entities.filter(e => {
       const dx = Math.abs(e.position.x - this.player.position.x);
       const dy = Math.abs(e.position.y - this.player.position.y);
@@ -762,7 +935,7 @@ export class Game {
   /** 使用楼梯 */
   private useStairs(): void {
     const tile = this.map.tiles[this.player.position.x][this.player.position.y];
-    if (tile.char === '>') {
+    if (tile.char === '▼ ' || tile.char.includes('▼')) {
       this.dungeonLevel++;
       this.addMessage(`进入地下城第 ${this.dungeonLevel} 层...`, '#FFD700');
       this.generateMap();
@@ -906,6 +1079,10 @@ export class Game {
     this.equipment[slotKey] = item;
     this.removeItemFromInventory(item.id, 1);
     this.addMessage(`装备了 ${item.name}`, '#00FF00');
+    
+    // 更新属性（装备加成）
+    this.updatePlayerStats();
+    
     this.onUpdate();
   }
 
@@ -956,6 +1133,271 @@ export class Game {
     });
     
     return stats;
+  }
+
+  // ============== 技能系统 ==============
+  
+  /** 获取玩家可用技能 */
+  getAvailableSkills(): Skill[] {
+    return this.player.skills.equipped
+      .map(id => createSkill(id))
+      .filter((s): s is Skill => s !== null)
+      .map(s => ({
+        ...s,
+        currentCooldown: this.player.skills.cooldowns[s.id] || 0
+      }));
+  }
+  
+  /** 使用技能 */
+  useSkill(skillId: string, target?: Entity): boolean {
+    if (!this.player.skills.equipped.includes(skillId)) {
+      this.addMessage('技能未装备', '#FF0000');
+      return false;
+    }
+    
+    const skill = createSkill(skillId);
+    if (!skill) return false;
+    
+    // 检查冷却
+    const currentCd = this.player.skills.cooldowns[skillId] || 0;
+    if (currentCd > 0) {
+      this.addMessage(`技能冷却中，剩余 ${currentCd} 回合`, '#FF0000');
+      return false;
+    }
+    
+    // 检查法力
+    if (this.player.mp < skill.mpCost) {
+      this.addMessage('法力不足', '#FF0000');
+      return false;
+    }
+    
+    // 消耗法力
+    this.player.mp -= skill.mpCost;
+    
+    // 设置冷却
+    this.player.skills.cooldowns[skillId] = skill.cooldown;
+    
+    // 执行技能效果
+    this.executeSkillEffects(skill, target);
+    
+    this.addMessage(`使用了 ${skill.name}`, '#FFD700');
+    
+    // 战斗模式下结束回合
+    if (this.inCombat) {
+      this.endPlayerCombatTurn();
+    } else {
+      this.onUpdate();
+    }
+    
+    return true;
+  }
+  
+  /** 执行技能效果 */
+  private executeSkillEffects(skill: Skill, target?: Entity): void {
+    for (const effect of skill.effects) {
+      switch (effect.type) {
+        case 'damage':
+          if (target && target.hp !== undefined) {
+            const damage = Math.floor(this.player.attack * effect.value);
+            target.hp -= damage;
+            this.addMessage(`造成 ${damage} 点伤害`, '#FFFFFF');
+          }
+          break;
+        case 'heal':
+          const healAmount = effect.value;
+          this.player.hp = Math.min(this.player.maxHp, this.player.hp + healAmount);
+          this.addMessage(`恢复 ${healAmount} HP`, '#00FF00');
+          break;
+        case 'buff_attack':
+          this.player.buffs.push({
+            type: 'attack',
+            value: effect.value,
+            duration: effect.duration || 3,
+            source: skill.name
+          });
+          this.addMessage(`攻击力提升 ${Math.floor(effect.value * 100)}%`, '#00FF00');
+          break;
+        case 'buff_defense':
+          this.player.buffs.push({
+            type: 'defense',
+            value: effect.value,
+            duration: effect.duration || 3,
+            source: skill.name
+          });
+          this.addMessage(`防御力提升 ${Math.floor(effect.value * 100)}%`, '#00FF00');
+          break;
+        case 'stun':
+          if (target) {
+            if (!target.buffs) target.buffs = [];
+            target.buffs.push({
+              type: 'stun',
+              value: 1,
+              duration: effect.duration || 1,
+              source: skill.name
+            });
+            this.addMessage(`${target.name} 被眩晕了！`, '#FFFF00');
+          }
+          break;
+        case 'poison':
+          if (target) {
+            if (!target.buffs) target.buffs = [];
+            target.buffs.push({
+              type: 'poison',
+              value: effect.value,
+              duration: effect.duration || 3,
+              source: skill.name
+            });
+            this.addMessage(`${target.name} 中毒了！`, '#8B008B');
+          }
+          break;
+      }
+    }
+  }
+  
+  /** 敌人使用技能 */
+  private enemyUseSkill(enemy: Entity): void {
+    if (!enemy.skills || enemy.skills.length === 0) {
+      // 没有技能，普通攻击
+      this.enemyNormalAttack(enemy);
+      return;
+    }
+    
+    // 查找可用的技能（冷却为0）
+    const availableSkills = enemy.skills.filter(s => s.currentCooldown <= 0);
+    
+    if (availableSkills.length > 0 && Math.random() < 0.4) {
+      // 40%概率使用技能
+      const skill = availableSkills[Math.floor(Math.random() * availableSkills.length)];
+      
+      // 设置冷却
+      skill.currentCooldown = skill.cooldown;
+      
+      this.addMessage(`${enemy.name} 使用了 ${skill.name}！`, '#FF4444');
+      
+      // 执行技能效果
+      for (const effect of skill.effects) {
+        switch (effect.type) {
+          case 'damage':
+            const damage = Math.floor((enemy.attack || 5) * effect.value);
+            this.player.hp -= damage;
+            this.addMessage(`受到 ${damage} 点伤害`, '#FF0000');
+            break;
+          case 'heal':
+            if (enemy.hp !== undefined) {
+              enemy.hp = Math.min(enemy.maxHp || enemy.hp, enemy.hp + effect.value);
+              this.addMessage(`${enemy.name} 恢复了 HP`, '#FF4444');
+            }
+            break;
+          case 'buff_attack':
+            if (!enemy.buffs) enemy.buffs = [];
+            enemy.buffs.push({
+              type: 'attack',
+              value: effect.value,
+              duration: effect.duration || 3,
+              source: skill.name
+            });
+            this.addMessage(`${enemy.name} 攻击力提升`, '#FF4444');
+            break;
+          case 'buff_defense':
+            if (!enemy.buffs) enemy.buffs = [];
+            enemy.buffs.push({
+              type: 'defense',
+              value: effect.value,
+              duration: effect.duration || 3,
+              source: skill.name
+            });
+            this.addMessage(`${enemy.name} 防御力提升`, '#FF4444');
+            break;
+        }
+      }
+    } else {
+      // 普通攻击
+      this.enemyNormalAttack(enemy);
+    }
+  }
+  
+  /** 敌人普通攻击 */
+  private enemyNormalAttack(enemy: Entity): void {
+    const damage = Math.max(1, (enemy.attack || 5) - this.player.defense - this.getEquipmentStats().defense);
+    this.player.hp -= damage;
+    this.addMessage(`${enemy.name} 攻击了你，造成 ${damage} 点伤害`, '#FF0000');
+  }
+  
+  /** 减少所有冷却 */
+  private reduceCooldowns(): void {
+    // 减少玩家技能冷却
+    for (const [id, cd] of Object.entries(this.player.skills.cooldowns)) {
+      if (cd > 0) {
+        this.player.skills.cooldowns[id] = cd - 1;
+      }
+    }
+    
+    // 减少敌人技能冷却
+    for (const entity of this.entities) {
+      if (entity.skills) {
+        for (const skill of entity.skills) {
+          if (skill.currentCooldown > 0) {
+            skill.currentCooldown--;
+          }
+        }
+      }
+    }
+  }
+  
+  /** 处理Buff效果 */
+  private processBuffs(): void {
+    // 处理玩家buff
+    for (let i = this.player.buffs.length - 1; i >= 0; i--) {
+      const buff = this.player.buffs[i];
+      
+      // 应用持续效果
+      if (buff.type === 'poison') {
+        this.player.hp -= buff.value;
+        this.addMessage(`中毒效果造成 ${buff.value} 点伤害`, '#8B008B');
+      }
+      
+      // 减少持续时间
+      buff.duration--;
+      if (buff.duration <= 0) {
+        this.addMessage(`${buff.source} 效果消失了`, '#808080');
+        this.player.buffs.splice(i, 1);
+      }
+    }
+    
+    // 处理敌人buff
+    for (const entity of this.entities) {
+      if (entity.buffs) {
+        for (let i = entity.buffs.length - 1; i >= 0; i--) {
+          const buff = entity.buffs[i];
+          buff.duration--;
+          if (buff.duration <= 0) {
+            entity.buffs.splice(i, 1);
+          }
+        }
+      }
+    }
+  }
+  
+  /** 获取玩家实际攻击力（包含buff） */
+  private getPlayerAttack(): number {
+    let attack = this.player.attack + this.getEquipmentStats().attack;
+    for (const buff of this.player.buffs) {
+      if (buff.type === 'attack') {
+        attack += Math.floor(this.player.attack * buff.value);
+      }
+    }
+    return attack;
+  }
+  
+  /** 获取玩家实际防御力（包含buff） */
+  private getPlayerDefense(): number {
+    let defense = this.player.defense + this.getEquipmentStats().defense;
+    for (const buff of this.player.buffs) {
+      if (buff.type === 'defense') {
+        defense += Math.floor(this.player.defense * buff.value);
+      }
+    }
+    return defense;
   }
 
   /** 添加消息 */

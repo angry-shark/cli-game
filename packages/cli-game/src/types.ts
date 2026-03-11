@@ -14,6 +14,7 @@ export enum GameState {
   COMBAT = 'combat',
   INVENTORY = 'inventory',
   MESSAGE = 'message',
+  LEVEL_UP = 'level_up',
   GAME_OVER = 'game_over'
 }
 
@@ -49,6 +50,10 @@ export interface Entity {
   isHostile?: boolean;
   isOpen?: boolean;
   loot?: string[];
+  skills?: Skill[];       // 敌人技能
+  buffs?: Buff[];         // 当前增益效果
+  mp?: number;            // 敌人法力值
+  maxMp?: number;
 }
 
 /** 玩家数据 */
@@ -65,6 +70,22 @@ export interface PlayerData {
   defense: number;
   gold: number;
   position: Point2D;
+  skills: PlayerSkills;  // 技能数据
+  buffs: Buff[];         // 当前增益效果
+  // 加点系统
+  statPoints: number;    // 可用属性点
+  baseAttack: number;    // 基础攻击（不含装备加成）
+  baseDefense: number;   // 基础防御（不含装备加成）
+  baseMaxHp: number;     // 基础生命上限
+  baseMaxMp: number;     // 基础法力上限
+}
+
+/** Buff/Debuff 效果 */
+export interface Buff {
+  type: 'attack' | 'defense' | 'speed' | 'poison' | 'stun';
+  value: number;
+  duration: number;  // 剩余回合数
+  source: string;    // 来源（技能名）
 }
 
 /** 物品类型 */
@@ -167,4 +188,42 @@ export interface GameConfig {
   viewportHeight: number;
   fovRadius: number;
   maxDungeonLevel: number;
+}
+
+/** 技能类型 */
+export enum SkillType {
+  ATTACK = 'attack',      // 攻击技能
+  HEAL = 'heal',          // 治疗技能
+  BUFF = 'buff',          // 增益技能
+  DEBUFF = 'debuff',      // 减益技能
+  SPECIAL = 'special'     // 特殊技能
+}
+
+/** 技能效果 */
+export interface SkillEffect {
+  type: 'damage' | 'heal' | 'buff_attack' | 'buff_defense' | 'buff_speed' | 'stun' | 'poison';
+  value: number;
+  duration?: number;      // 持续回合数
+  target: 'self' | 'enemy' | 'all_enemies';
+}
+
+/** 技能定义 */
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  type: SkillType;
+  icon: string;
+  effects: SkillEffect[];
+  cooldown: number;       // 冷却回合数
+  currentCooldown: number; // 当前冷却
+  mpCost: number;         // 法力消耗
+  power: number;          // 威力系数
+}
+
+/** 玩家技能数据 */
+export interface PlayerSkills {
+  learned: string[];      // 已学习的技能ID
+  equipped: string[];     // 装备的技能ID（最多4个）
+  cooldowns: Record<string, number>; // 技能冷却
 }
