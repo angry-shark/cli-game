@@ -92,6 +92,11 @@ export default function GameComponent({ game }: GameComponentProps) {
   const config = game.getConfig();
   const mapType = game.getMapType();
 
+  // 渲染加载画面
+  if (state === GameState.LOADING) {
+    return <LoadingView game={game} stdout={stdout} />;
+  }
+
   // 渲染游戏结束画面
   if (game.isGameOver()) {
     useInput(() => {
@@ -145,6 +150,16 @@ export default function GameComponent({ game }: GameComponentProps) {
   if (mapType === MapType.TOWN) {
     return (
       <TownView 
+        game={game} 
+        player={player} 
+        messages={messages} 
+        config={config}
+        stdout={stdout}
+      />
+    );
+  } else if (mapType === MapType.WILDERNESS) {
+    return (
+      <WildernessView 
         game={game} 
         player={player} 
         messages={messages} 
@@ -252,23 +267,24 @@ function TownView({ game, player, messages, config, stdout }: any) {
             }
             
             return (
-              <Box key={rowIndex}>
-                <Text>{line}</Text>
-              </Box>
+              <Box key={rowIndex}><Text>{line}</Text></Box>
             );
           })}
         </Box>
 
         {/* 右侧面板 */}
-        <Box flexDirection="column" marginLeft={1} width={20}>
+        <Box flexDirection="column" marginLeft={1} width={22}>
           <PlayerPanel player={player} game={game} />
+          <Box marginTop={1}>
+            <LegendPanel mapType={MapType.TOWN} />
+          </Box>
         </Box>
       </Box>
 
-      {/* 消息日志 */}
-      <Box flexDirection="column" borderStyle="single" paddingX={1} marginTop={1} height={6}>
+      {/* 消息日志 - 缩小高度 */}
+      <Box flexDirection="column" borderStyle="single" paddingX={1} marginTop={1} height={4}>
         <Text bold underline>消息</Text>
-        {messages.slice(-5).map((msg: any, i: number) => (
+        {messages.slice(-3).map((msg: any, i: number) => (
           <Text key={i} color={hexToAnsi(msg.color)}>
             {msg.text.length > viewportWidth + 18 ? msg.text.slice(0, viewportWidth + 15) + '...' : msg.text}
           </Text>
@@ -278,7 +294,7 @@ function TownView({ game, player, messages, config, stdout }: any) {
       {/* 控制提示 */}
       <Box marginTop={1}>
         <Text color="gray">
-          [WASD/↑↓←→]移动 [E]互动(🚪⬇️旁) [I]背包 [ESC]退出
+          [WASD/↑↓←→]移动 [E]互动(🚪🔮旁) [I]背包 [ESC]退出
         </Text>
       </Box>
     </Box>
@@ -348,23 +364,24 @@ function DungeonView({ game, player, messages, config, stdout }: any) {
             }
             
             return (
-              <Box key={row}>
-                <Text>{line}</Text>
-              </Box>
+              <Box key={row}><Text>{line}</Text></Box>
             );
           })}
         </Box>
 
         {/* 右侧面板 */}
-        <Box flexDirection="column" marginLeft={1} width={20}>
+        <Box flexDirection="column" marginLeft={1} width={22}>
           <PlayerPanel player={player} game={game} />
+          <Box marginTop={1}>
+            <LegendPanel mapType={MapType.DUNGEON} />
+          </Box>
         </Box>
       </Box>
 
-      {/* 消息日志 */}
-      <Box flexDirection="column" borderStyle="single" paddingX={1} marginTop={1} height={6}>
+      {/* 消息日志 - 缩小高度 */}
+      <Box flexDirection="column" borderStyle="single" paddingX={1} marginTop={1} height={4}>
         <Text bold underline>消息</Text>
-        {messages.slice(-5).map((msg: any, i: number) => (
+        {messages.slice(-3).map((msg: any, i: number) => (
           <Text key={i} color={hexToAnsi(msg.color)}>
             {msg.text.length > viewportWidth + 18 ? msg.text.slice(0, viewportWidth + 15) + '...' : msg.text}
           </Text>
@@ -374,7 +391,7 @@ function DungeonView({ game, player, messages, config, stdout }: any) {
       {/* 控制提示 */}
       <Box marginTop={1}>
         <Text color="gray">
-          [WASD/↑↓←→]移动 [E]互动(⬆️⬇️旁) [G]拾取 [I]背包 [ESC]退出
+          [WASD/↑↓←→]移动 [E]互动(🔮🚪旁) [G]拾取 [I]背包 [ESC]退出
         </Text>
       </Box>
     </Box>
@@ -462,6 +479,61 @@ function PlayerPanel({ player, game }: { player: ReturnType<Game['getPlayer']>; 
       <Text>头盔: {equipment.helmet?.name || '-'}</Text>
       <Text>盾牌: {equipment.shield?.name || '-'}</Text>
       <Text>戒指: {equipment.ring?.name || '-'}</Text>
+    </Box>
+  );
+}
+
+/** 图例面板 */
+function LegendPanel({ mapType }: { mapType: MapType }) {
+  const townLegends = [
+    { icon: '🧙', name: '玩家', color: 'yellow' },
+    { icon: '██', name: '墙壁', color: 'gray' },
+    { icon: '░░', name: '草地', color: 'gray' },
+    { icon: '▓▓', name: '道路', color: 'gray' },
+    { icon: '🚪', name: '门口', color: 'white' },
+    { icon: '🌲', name: '树木', color: 'green' },
+    { icon: '👴', name: 'NPC', color: 'white' },
+    { icon: '💰', name: '商店', color: 'yellow' },
+    { icon: '🍺', name: '旅馆', color: 'green' },
+    { icon: '⚒️', name: '铁匠', color: 'blue' },
+    { icon: '🕯️', name: '神庙', color: 'cyan' },
+    { icon: '🔮', name: '传送门', color: 'magenta' },
+  ];
+
+  const dungeonLegends = [
+    { icon: '🧙', name: '玩家', color: 'yellow' },
+    { icon: '██', name: '墙壁', color: 'gray' },
+    { icon: '░░', name: '地板', color: 'gray' },
+    { icon: '🔮', name: '传送门', color: 'magenta' },
+    { icon: 'ee', name: '怪物', color: 'red' },
+    { icon: 'CC', name: '宝箱', color: 'yellow' },
+  ];
+
+  const wildernessLegends = [
+    { icon: '🧙', name: '玩家', color: 'yellow' },
+    { icon: '░░', name: '草地', color: 'gray' },
+    { icon: '▓▓', name: '道路', color: 'gray' },
+    { icon: '🌲', name: '树木', color: 'green' },
+    { icon: '🪨', name: '岩石', color: 'gray' },
+    { icon: '🔮', name: '传送门', color: 'magenta' },
+    { icon: '🐻', name: '野怪', color: 'red' },
+    { icon: '🌿', name: '草药', color: 'green' },
+    { icon: '⛏️', name: '矿石', color: 'cyan' },
+  ];
+
+  const legends = mapType === MapType.TOWN ? townLegends :
+                  mapType === MapType.DUNGEON ? dungeonLegends :
+                  wildernessLegends;
+
+  return (
+    <Box flexDirection="column" borderStyle="single" paddingX={1}>
+      <Text bold underline>图例</Text>
+      {legends.map((item, i) => (
+        <Box key={i}>
+          <Text color={item.color as any}>{item.icon}</Text>
+          <Text> {item.name}</Text>
+        </Box>
+      ))}
     </Box>
   );
 }
@@ -584,6 +656,40 @@ function getStatName(stat: string): string {
     critical: '暴击'
   };
   return names[stat] || stat;
+}
+
+/** 加载视图 - 带进度条 */
+function LoadingView({ game, stdout }: { game: Game; stdout: any }) {
+  const progress = game.getLoadingProgress();
+  const message = game.getLoadingMessage();
+  const target = game.getLoadingTarget();
+  
+  const barWidth = 40;
+  const filled = Math.floor((progress / 100) * barWidth);
+  const empty = barWidth - filled;
+  
+  const progressBar = '█'.repeat(filled) + '░'.repeat(empty);
+  
+  return (
+    <Box flexDirection="column" alignItems="center" justifyContent="center" height={stdout.rows || 24}>
+      <Text bold color="cyan">🗺️ 正在前往 {target}</Text>
+      
+      <Box marginY={2} flexDirection="column" alignItems="center">
+        <Box borderStyle="single" paddingX={1}>
+          <Text>{progressBar}</Text>
+        </Box>
+        <Box marginTop={1}>
+          <Text bold color="yellow">{progress}%</Text>
+        </Box>
+      </Box>
+      
+      <Text color="gray">{message}</Text>
+      
+      <Box marginTop={2}>
+        <Text dimColor>请稍候...</Text>
+      </Box>
+    </Box>
+  );
 }
 
 /** 战斗视图 */
@@ -829,10 +935,10 @@ function BuildingInteriorView({ game, player, messages, config, stdout }: any) {
         </Box>
       </Box>
 
-      {/* 消息日志 */}
-      <Box flexDirection="column" borderStyle="single" paddingX={1} marginTop={1} height={5}>
+      {/* 消息日志 - 缩小高度 */}
+      <Box flexDirection="column" borderStyle="single" paddingX={1} marginTop={1} height={4}>
         <Text bold underline>消息</Text>
-        {messages.slice(-4).map((msg: any, i: number) => (
+        {messages.slice(-3).map((msg: any, i: number) => (
           <Text key={i} color={hexToAnsi(msg.color)}>
             {msg.text.length > 50 ? msg.text.slice(0, 47) + '...' : msg.text}
           </Text>
@@ -843,6 +949,115 @@ function BuildingInteriorView({ game, player, messages, config, stdout }: any) {
       <Box marginTop={1}>
         <Text color="gray">
           [WASD/↑↓←→]移动 [E]对话/🚪离开 [I]背包 [ESC]退出
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
+/** 野外地图视图 */
+function WildernessView({ game, player, messages, config, stdout }: any) {
+  const wilderness = game.getWildernessMap();
+  const worldNode = game.getWorldMap().getCurrentNode();
+  
+  if (!wilderness) return <Text>加载野外地图...</Text>;
+  
+  const viewportWidth = Math.min(config.viewportWidth, stdout.columns - 22);
+  const viewportHeight = Math.min(config.viewportHeight, stdout.rows - 6);
+  
+  // 计算视口范围
+  const vpStartX = Math.max(0, Math.min(player.position.x - Math.floor(viewportWidth / 2), wilderness.width - viewportWidth));
+  const vpStartY = Math.max(0, Math.min(player.position.y - Math.floor(viewportHeight / 2), wilderness.height - viewportHeight));
+  const vpEndX = Math.min(wilderness.width, vpStartX + viewportWidth);
+  const vpEndY = Math.min(wilderness.height, vpStartY + viewportHeight);
+  
+  return (
+    <Box flexDirection="column">
+      {/* 状态栏 */}
+      <Box width="100%" justifyContent="space-between" borderStyle="single" paddingX={1}>
+        <Box>
+          <Text color="yellow">🧙 {player.name}</Text>
+          <Text> | </Text>
+          <Text color="orange">🏞️ {worldNode?.name || '野外'}</Text>
+          <Text> | </Text>
+          <Text color="red">{'★'.repeat(worldNode?.difficulty || 1)}</Text>
+        </Box>
+        <Box>
+          <Text color="green">HP: {player.hp}/{player.maxHp}</Text>
+          <Text> | </Text>
+          <Text color="blue">MP: {player.mp}/{player.maxMp}</Text>
+        </Box>
+      </Box>
+
+      {/* 主区域：地图 + 信息面板 */}
+      <Box>
+        {/* 地图区域 */}
+        <Box flexDirection="column" borderStyle="single">
+          {Array.from({ length: vpEndY - vpStartY }, (_, row) => {
+            const y = vpStartY + row;
+            let line = '';
+            
+            for (let x = vpStartX; x < vpEndX; x++) {
+              // 检查是否是玩家位置
+              if (player.position.x === x && player.position.y === y) {
+                line += '🧙';
+                continue;
+              }
+              
+              // 检查是否有实体
+              const entities = game.getAllEntities();
+              const entity = entities.find((e: any) => e.position.x === x && e.position.y === y);
+              
+              if (entity) {
+                line += entity.char;
+                continue;
+              }
+              
+              // 检查传送门
+              const portal = wilderness.portals.find((p: any) => p.x === x && p.y === y);
+              if (portal) {
+                line += '🔮';
+                continue;
+              }
+              
+              // 显示地图
+              const tile = wilderness.tiles[x][y];
+              line += tile.char;
+            }
+            
+            return (
+              <Box key={row}><Text>{line}</Text></Box>
+            );
+          })}
+        </Box>
+
+        {/* 右侧面板 */}
+        <Box flexDirection="column" marginLeft={1} width={22}>
+          <Box flexDirection="column" borderStyle="single" paddingX={1}>
+            <Text bold underline>区域</Text>
+            <Text color="orange">{worldNode?.name || '野外'}</Text>
+            <Text>难度: {'★'.repeat(worldNode?.difficulty || 1)}</Text>
+          </Box>
+          <Box marginTop={1}>
+            <LegendPanel mapType={MapType.WILDERNESS} />
+          </Box>
+        </Box>
+      </Box>
+
+      {/* 消息日志 - 缩小高度 */}
+      <Box flexDirection="column" borderStyle="single" paddingX={1} marginTop={1} height={4}>
+        <Text bold underline>消息</Text>
+        {messages.slice(-3).map((msg: any, i: number) => (
+          <Text key={i} color={hexToAnsi(msg.color)}>
+            {msg.text.length > 50 ? msg.text.slice(0, 47) + '...' : msg.text}
+          </Text>
+        ))}
+      </Box>
+
+      {/* 控制提示 */}
+      <Box marginTop={1}>
+        <Text color="gray">
+          [WASD]移动 [E]互动(🔮旁) [G]采集 [I]背包 [ESC]退出
         </Text>
       </Box>
     </Box>

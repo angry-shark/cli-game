@@ -27,8 +27,8 @@ export const TOWN_TILES = {
   WELL: { char: '🕳️', color: '#4682B4', bgColor: '#2c5270', walkable: false, transparent: true },
   LAMP: { char: '💡', color: '#FFD700', bgColor: '#1a2f0a', walkable: true, transparent: true },
   
-  // 特殊
-  EXIT: { char: '⬇️', color: '#FFD700', bgColor: '#404040', walkable: true, transparent: true },
+  // 特殊 - 明显的传送门
+  EXIT: { char: '🔮', color: '#FF00FF', bgColor: '#4B0082', walkable: true, transparent: true },
   DOOR: { char: '🚪', color: '#8B4513', bgColor: '#654321', walkable: true, transparent: true },
 };
 
@@ -75,10 +75,10 @@ export interface TownConfig {
 }
 
 const DEFAULT_TOWN_CONFIG: TownConfig = {
-  chunkSize: 40,
+  chunkSize: 26,
   roadWidth: 2,
-  buildingDensity: 0.3,
-  treeDensity: 0.008  // 极其稀疏的树木（40x40地图约1-2棵树）
+  buildingDensity: 0.4,
+  treeDensity: 0.012
 };
 
 /** 城镇生成器 */
@@ -458,7 +458,7 @@ export class TownGenerator {
                 chunk.tiles[x][y].char === TOWN_TILES.PAVEMENT.char) {
               chunk.tiles[x][y] = {
                 ...TOWN_TILES.ROAD,
-                char: '⬇️',  // 向下箭头
+                char: '🔮',  // 传送门
                 color: '#FFD700',
                 description: '通往地下城的入口'
               };
@@ -472,7 +472,7 @@ export class TownGenerator {
                   position: { x: signX, y },
                   char: '📜',  // 卷轴
                   color: '#8B4513',
-                  dialogue: ['⬇️ 地下城入口：危险！仅供冒险者进入！']
+                  dialogue: ['🔮 地下城入口：危险！仅供冒险者进入！']
                 });
               }
               return;

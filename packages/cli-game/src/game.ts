@@ -1,6 +1,6 @@
 /**
  * 游戏核心逻辑
- * 支持城镇（动态加载）和地下城两种地图模式
+ * 支持世界地图：城镇、野外、地下城
  */
 
 import * as ROT from 'rot-js';
@@ -11,15 +11,20 @@ import {
   Skill, Buff
 } from './types.js';
 import { createItem, getRandomLoot, RARITY_COLORS, ITEM_TYPE_ICONS } from './items.js';
+
+// 重新导出物品相关常量
+export { RARITY_COLORS, ITEM_TYPE_ICONS };
 import { createSkill, getEnemyDefaultSkill } from './skills.js';
 import { TownMapManager } from './town-manager.js';
 import { TOWN_TILES, Building } from './town-generator.js';
-import { InteriorManager, BuildingInterior, INTERIOR_TILES } from './building-interior.js';
+import { InteriorManager, BuildingInterior } from './building-interior.js';
+import { WorldMapManager, WorldMapType, PortalDirection } from './world-map.js';
+import { WildernessGenerator, WildernessMap, WILDERNESS_TILES } from './wilderness-generator.js';
 
-/** 地图类型 */
-/** 地图类型 */
+/** 当前地图类型 */
 export enum MapType {
   TOWN = 'town',
+  WILDERNESS = 'wilderness',
   DUNGEON = 'dungeon'
 }
 
@@ -33,14 +38,12 @@ const DEFAULT_CONFIG: GameConfig = {
   maxDungeonLevel: 10
 };
 
-/** 地下城瓦片定义 - 楼梯有碰撞体积，需要站在旁边按E互动 */
+/** 地下城瓦片定义 */
 const DUNGEON_TILES = {
   WALL: { char: '██', color: '#808080', bgColor: '#2F2F2F', walkable: false, transparent: false },
   FLOOR: { char: '░░', color: '#1a1a1a', bgColor: '#1a1a1a', walkable: true, transparent: true },
-  DOOR_CLOSED: { char: '🚪', color: '#8B4513', bgColor: '#2F1B0C', walkable: false, transparent: false },
-  DOOR_OPEN: { char: '▒▒', color: '#1a1a1a', bgColor: '#1a1a1a', walkable: true, transparent: true },
-  STAIRS_DOWN: { char: '⬇️', color: '#FFD700', bgColor: '#1a1a1a', walkable: false, transparent: true },  // 有碰撞体积
-  STAIRS_UP: { char: '⬆️', color: '#FFD700', bgColor: '#1a1a1a', walkable: false, transparent: true }     // 有碰撞体积
+  STAIRS_DOWN: { char: '⬇️', color: '#FFD700', bgColor: '#1a1a1a', walkable: false, transparent: true },
+  STAIRS_UP: { char: '⬆️', color: '#FFD700', bgColor: '#1a1a1a', walkable: false, transparent: true }
 };
 
 /** 敌人模板 */
@@ -54,7 +57,6 @@ interface EnemyTemplate {
   isHostile: true;
 }
 
-/** NPC 模板 */
 interface NPCTemplate {
   name: string;
   char: string;
@@ -63,7 +65,6 @@ interface NPCTemplate {
   dialogue: string[];
 }
 
-/** 实体模板 - 全部使用emoji + 空格 */
 const ENTITY_TEMPLATES: Record<string, EnemyTemplate | NPCTemplate> = {
   'villager': { name: '村民', char: '👴', color: '#FFA500', hp: 20, dialogue: ['欢迎来到地下城！', '小心深处的怪物。'] },
   'merchant': { name: '商人', char: '👲', color: '#FFD700', hp: 30, dialogue: ['需要补给吗？', '我这里有好东西。'] },
@@ -84,19 +85,25 @@ export class Game {
   private config: GameConfig;
   private mapType: MapType = MapType.TOWN;
   
+  // 世界地图系统
+  private worldMap: WorldMapManager;
+  
   // 城镇系统
   private townManager: TownMapManager;
-  private currentChunk: any | null = null;
   private interiorManager: InteriorManager;
   private currentInterior: BuildingInterior | null = null;
   private currentBuilding: Building | null = null;
   private inBuilding: boolean = false;
   
+  // 野外系统
+  private wildernessMap: WildernessMap | null = null;
+  private wildernessEntities: Entity[] = [];
+  private wildernessGenerator: WildernessGenerator;
+  
   // 地下城系统
   private dungeonMap!: GameMap;
   private dungeonEntities: Entity[] = [];
   private dungeonLevel: number = 1;
-  private townEntryPosition: Point2D | null = null; // 记录进入地下城时的城镇位置
   
   // 通用数据
   private player: PlayerData;
@@ -104,7 +111,13 @@ export class Game {
   private equipment: EquipmentSlots = {};
   private gold: number = 0;
   private state: GameState = GameState.EXPLORE;
+  private godMode: boolean = true; // 无敌模式 - 调试时开启
   private combatState: CombatState = CombatState.PLAYER_TURN;
+  
+  // 加载状态
+  private loadingProgress: number = 0;
+  private loadingMessage: string = '';
+  private loadingTarget: string = '';
   private combatEnemies: Entity[] = [];
   private inCombat: boolean = false;
   private messages: LogMessage[] = [];
@@ -117,10 +130,14 @@ export class Game {
   private inventoryFilter: ItemType | null = null;
   private gameOver: boolean = false;
   private enemyTurnDelay: number = 500;
+  private townEntryPosition: Point2D | null = null;
 
   constructor(onUpdate: () => void, config: Partial<GameConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.onUpdate = onUpdate;
+    
+    // 初始化世界地图
+    this.worldMap = new WorldMapManager();
     
     // 初始化玩家
     this.player = {
@@ -143,16 +160,18 @@ export class Game {
       baseMaxHp: 100, baseMaxMp: 50
     };
     
+    // 初始化野外生成器
+    this.wildernessGenerator = new WildernessGenerator({ difficulty: 1 });
+    
     // 初始化城镇系统
-    this.townManager = new TownMapManager(40);
+    this.townManager = new TownMapManager(26);
     this.townManager.initialize(0, 0);
     
     // 初始化建筑内部系统
     this.interiorManager = new InteriorManager();
     
-    // 设置玩家初始位置（城镇中心）
-    const spawnPoint = this.townManager.findSpawnPoint();
-    this.player.position = { x: spawnPoint.x, y: spawnPoint.y };
+    // 根据世界地图当前节点加载对应地图
+    this.loadCurrentWorldNode();
     
     // 初始化背包
     this.initInventory();
@@ -168,15 +187,138 @@ export class Game {
     });
     
     this.updateFOV();
-    this.addMessage('🏘️ 欢迎来到城镇！按 E 与NPC和建筑互动', '#00FF00');
-    this.addMessage('城镇中心的 ⬇️ 可以进入地下城', '#FFD700');
+    this.addMessage('🏘️ 欢迎来到新手村！城镇边缘有传送门通往野外。', '#00FF00');
+    this.addMessage('探索世界，前往更远的城镇！', '#FFD700');
   }
 
-  // ========== 地图类型切换 ==========
+  /** 加载当前世界节点对应的地图 - 带进度条 */
+  private async loadCurrentWorldNode(): Promise<void> {
+    const node = this.worldMap.getCurrentNode();
+    if (!node) return;
+
+    // 开始加载
+    this.state = GameState.LOADING;
+    this.loadingTarget = node.name;
+    this.loadingProgress = 0;
+    this.loadingMessage = '正在准备...';
+    this.onUpdate();
+
+    // 模拟加载进度
+    const steps = [
+      { progress: 15, message: '正在生成地形...', delay: 100 },
+      { progress: 35, message: '正在放置物体...', delay: 100 },
+      { progress: 55, message: '正在生成生物...', delay: 100 },
+      { progress: 75, message: '正在初始化...', delay: 100 },
+      { progress: 90, message: '即将完成...', delay: 100 },
+      { progress: 100, message: '加载完成！', delay: 100 }
+    ];
+
+    for (const step of steps) {
+      await this.delay(step.delay);
+      this.loadingProgress = step.progress;
+      this.loadingMessage = step.message;
+      this.onUpdate();
+    }
+
+    // 实际加载地图
+    switch (node.type) {
+      case WorldMapType.TOWN:
+        this.mapType = MapType.TOWN;
+        this.loadTown(node);
+        break;
+      case WorldMapType.WILDERNESS:
+        this.mapType = MapType.WILDERNESS;
+        this.loadWilderness(node);
+        break;
+      case WorldMapType.DUNGEON:
+        this.mapType = MapType.DUNGEON;
+        this.enterDungeon();
+        break;
+    }
+
+    // 结束加载
+    await this.delay(200);
+    this.state = GameState.EXPLORE;
+    this.loadingProgress = 0;
+    this.onUpdate();
+  }
+
+  /** 延迟辅助函数 */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /** 获取加载进度 */
+  getLoadingProgress(): number {
+    return this.loadingProgress;
+  }
+
+  /** 获取加载消息 */
+  getLoadingMessage(): string {
+    return this.loadingMessage;
+  }
+
+  /** 获取加载目标 */
+  getLoadingTarget(): string {
+    return this.loadingTarget;
+  }
+
+  /** 加载城镇 */
+  private loadTown(node: { id: string; name: string }): void {
+    // 城镇使用 26x26 的区块，3x3 网格
+    // 中心区块是 (1,1)，中心位置大约在 (39, 39)
+    const chunkSize = 26;
+    const centerX = chunkSize * 1 + Math.floor(chunkSize / 2); // 26 + 13 = 39
+    const centerY = chunkSize * 1 + Math.floor(chunkSize / 2); // 39
+    
+    // 设置玩家到城镇中心
+    this.player.position = { x: centerX, y: centerY };
+    this.townManager.updatePlayerPosition(centerX, centerY);
+    
+    this.addMessage(`进入 ${node.name}`, '#00FF00');
+  }
+
+  /** 加载野外地图 */
+  private loadWilderness(node: { id: string; name: string; difficulty?: number }): void {
+    const difficulty = node.difficulty || 1;
+    // 根据难度设置生成器 - 降低怪物密度
+    this.wildernessGenerator = new WildernessGenerator({
+      width: 60,
+      height: 30,
+      difficulty: difficulty,
+      monsterDensity: 0.02 + difficulty * 0.005, // 降低基础密度
+      resourceDensity: 0.08
+    });
+    
+    // 获取连接信息
+    const currentNode = this.worldMap.getCurrentNode();
+    const portals = currentNode?.portals.map(p => ({
+      direction: p.direction,
+      targetMapId: p.targetMapId
+    })) || [];
+    
+    // 生成野外地图
+    this.wildernessMap = this.wildernessGenerator.generateMap(portals);
+    this.wildernessEntities = this.wildernessGenerator.generateMonsters(this.wildernessMap);
+    
+    // 设置玩家位置（从第一个传送门附近开始）
+    if (this.wildernessMap.portals.length > 0) {
+      const entryPortal = this.wildernessMap.portals[0];
+      this.player.position = {
+        x: entryPortal.x,
+        y: entryPortal.y + 2 // 传送门下方
+      };
+    } else {
+      this.player.position = { x: 30, y: 15 };
+    }
+    
+    this.addMessage(`进入 ${node.name} - 难度: ${'★'.repeat(node.difficulty || 1)}`, '#FF6347');
+  }
+
+  // ========== 地图切换 ==========
 
   /** 进入地下城 */
   enterDungeon(): void {
-    // 保存进入地下城前的城镇位置
     this.townEntryPosition = { ...this.player.position };
     this.mapType = MapType.DUNGEON;
     this.generateDungeonMap();
@@ -188,7 +330,6 @@ export class Game {
   /** 返回城镇 */
   returnToTown(): void {
     this.mapType = MapType.TOWN;
-    // 恢复到进入地下城前的位置
     if (this.townEntryPosition) {
       this.player.position = { ...this.townEntryPosition };
     }
@@ -198,78 +339,20 @@ export class Game {
     this.onUpdate();
   }
 
-  // ========== 建筑系统 ==========
-
-  /** 进入建筑 */
-  private enterBuilding(building: Building): void {
-    this.currentBuilding = building;
-    this.currentInterior = this.interiorManager.getInterior(building);
-    this.inBuilding = true;
-    
-    // 设置玩家在建筑内的初始位置（门口）
-    this.player.position = {
-      x: Math.floor(this.currentInterior.width / 2),
-      y: this.currentInterior.height - 1
-    };
-    
-    this.addMessage(`进入 ${building.name}`, '#00FF00');
-    this.onUpdate();
-  }
-
-  /** 离开建筑 */
-  private exitBuilding(): void {
-    if (!this.currentBuilding) return;
-    
-    // 恢复到建筑门口的位置
-    this.player.position = {
-      x: this.currentBuilding.doorX,
-      y: this.currentBuilding.doorY
-    };
-    
-    this.inBuilding = false;
-    this.currentInterior = null;
-    this.currentBuilding = null;
-    
-    this.addMessage('离开建筑', '#808080');
-    this.onUpdate();
-  }
-
-  /** 获取当前建筑内部 */
-  getCurrentInterior(): BuildingInterior | null {
-    return this.currentInterior;
-  }
-
-  /** 是否在建筑内 */
-  isInBuilding(): boolean {
-    return this.inBuilding;
-  }
-
-  /** 获取当前建筑 */
-  getCurrentBuilding(): Building | null {
-    return this.currentBuilding;
-  }
-
-  /** 获取当前地图类型 */
-  getMapType(): MapType { return this.mapType; }
-
-  /** 查找附近的楼梯（距离1格内） */
-  private findNearbyStairs(x: number, y: number): 'up' | 'down' | null {
-    const positions = [
-      { x: x, y: y },      // 脚下
-      { x: x+1, y: y },    // 右
-      { x: x-1, y: y },    // 左
-      { x: x, y: y+1 },    // 下
-      { x: x, y: y-1 },    // 上
-    ];
-    
-    for (const pos of positions) {
-      if (this.isInBounds(pos.x, pos.y)) {
-        const tile = this.getTile(pos.x, pos.y);
-        if (tile.char === '⬆️') return 'up';
-        if (tile.char === '⬇️') return 'down';
-      }
+  /** 通过传送门切换地图 */
+  private async usePortal(direction: PortalDirection): Promise<void> {
+    const portal = this.worldMap.getPortalInDirection(direction);
+    if (!portal) {
+      this.addMessage('这个方向没有传送门', '#808080');
+      return;
     }
-    return null;
+
+    const targetNode = this.worldMap.switchToNode(portal.targetMapId);
+    if (targetNode) {
+      await this.loadCurrentWorldNode();
+      this.updateFOV();
+      this.onUpdate();
+    }
   }
 
   // ========== 地下城生成 ==========
@@ -310,37 +393,21 @@ export class Game {
 
     digger.getRooms().forEach(room => rooms.push(room));
 
-    // 在第一个房间放置上楼楼梯（返回城镇）和玩家
     if (rooms.length > 0) {
       const firstRoom = rooms[0];
-      // 楼梯放在角落
       const stairsX = firstRoom.getLeft() + 1;
       const stairsY = firstRoom.getTop() + 1;
       map.tiles[stairsX][stairsY] = DUNGEON_TILES.STAIRS_UP;
-      
-      // 玩家放在楼梯旁边（下方）
       this.player.position = { x: stairsX, y: stairsY + 1 };
     }
 
-    // 在最后一个房间放置下楼楼梯（进入下一层）
     if (rooms.length > 0) {
       const lastRoom = rooms[rooms.length - 1];
-      // 楼梯放在角落
       const stairsX = lastRoom.getRight() - 2;
       const stairsY = lastRoom.getBottom() - 2;
       
       if (map.tiles[stairsX][stairsY].walkable || map.tiles[stairsX][stairsY].char === '░░') {
         map.tiles[stairsX][stairsY] = DUNGEON_TILES.STAIRS_DOWN;
-      } else {
-        // 寻找可用位置
-        for (let y = lastRoom.getTop() + 1; y < lastRoom.getBottom() - 1; y++) {
-          for (let x = lastRoom.getLeft() + 1; x < lastRoom.getRight() - 1; x++) {
-            if (map.tiles[x][y].walkable) {
-              map.tiles[x][y] = DUNGEON_TILES.STAIRS_DOWN;
-              break;
-            }
-          }
-        }
       }
     }
 
@@ -365,12 +432,6 @@ export class Game {
         this.spawnDungeonChest(centerX, centerY);
       } else if (roll < 0.5) {
         this.spawnDungeonNPC(centerX, centerY);
-      }
-      
-      if (Math.random() < 0.3) {
-        const itemX = room.getLeft() + 1 + Math.floor(Math.random() * (room.getRight() - room.getLeft() - 2));
-        const itemY = room.getTop() + 1 + Math.floor(Math.random() * (room.getBottom() - room.getTop() - 2));
-        this.spawnDungeonItem(itemX, itemY);
       }
     }
   }
@@ -407,7 +468,7 @@ export class Game {
       type: EntityType.CHEST,
       name: '宝箱',
       position: { x, y },
-      char: '📦',  // 包裹
+      char: '📦',
       color: '#FFD700',
       isOpen: false,
       loot: ['health_potion', 'herb', 'iron_ore']
@@ -430,31 +491,23 @@ export class Game {
     });
   }
 
-  private spawnDungeonItem(x: number, y: number): void {
-    const item = getRandomLoot();
-    if (!item) return;
-    
-    this.dungeonEntities.push({
-      id: `item_${this.turn}_${x}_${y}`,
-      type: EntityType.ITEM,
-      name: item.name,
-      position: { x, y },
-      char: item.char,
-      color: item.color,
-      loot: [item.id]
-    });
-  }
-
-  // ========== 地图查询方法 ==========
+  // ========== 地图查询 ==========
 
   private isInBounds(x: number, y: number): boolean {
-    if (this.mapType === MapType.TOWN) {
-      return true; // 城镇边界检查在 TownManager 中
+    if (this.mapType === MapType.WILDERNESS && this.wildernessMap) {
+      return x >= 0 && x < this.wildernessMap.width && y >= 0 && y < this.wildernessMap.height;
     }
-    return x >= 0 && x < this.dungeonMap.width && y >= 0 && y < this.dungeonMap.height;
+    if (this.mapType === MapType.DUNGEON) {
+      return x >= 0 && x < this.dungeonMap.width && y >= 0 && y < this.dungeonMap.height;
+    }
+    return true;
   }
 
   private isTransparent(x: number, y: number): boolean {
+    if (this.mapType === MapType.WILDERNESS && this.wildernessMap) {
+      if (!this.isInBounds(x, y)) return false;
+      return this.wildernessMap.tiles[x][y].transparent;
+    }
     if (this.mapType === MapType.TOWN) {
       const tile = this.townManager.getTile(x, y);
       return tile.transparent;
@@ -464,6 +517,10 @@ export class Game {
   }
 
   private isWalkable(x: number, y: number): boolean {
+    if (this.mapType === MapType.WILDERNESS && this.wildernessMap) {
+      if (!this.isInBounds(x, y)) return false;
+      return this.wildernessMap.tiles[x][y].walkable;
+    }
     if (this.mapType === MapType.TOWN) {
       return this.townManager.isWalkable(x, y);
     }
@@ -472,6 +529,10 @@ export class Game {
   }
 
   private getTile(x: number, y: number): Tile {
+    if (this.mapType === MapType.WILDERNESS && this.wildernessMap) {
+      if (!this.isInBounds(x, y)) return WILDERNESS_TILES.ROCK;
+      return this.wildernessMap.tiles[x][y];
+    }
     if (this.mapType === MapType.TOWN) {
       return this.townManager.getTile(x, y);
     }
@@ -480,6 +541,9 @@ export class Game {
   }
 
   private getEntityAt(x: number, y: number): Entity | undefined {
+    if (this.mapType === MapType.WILDERNESS) {
+      return this.wildernessEntities.find(e => e.position.x === x && e.position.y === y);
+    }
     if (this.mapType === MapType.TOWN) {
       return this.townManager.getEntityAt(x, y);
     }
@@ -487,6 +551,9 @@ export class Game {
   }
 
   private getAllEntities(): Entity[] {
+    if (this.mapType === MapType.WILDERNESS) {
+      return this.wildernessEntities;
+    }
     if (this.mapType === MapType.TOWN) {
       return this.townManager.getAllEntities();
     }
@@ -494,7 +561,9 @@ export class Game {
   }
 
   private removeEntity(entity: Entity): void {
-    if (this.mapType === MapType.TOWN) {
+    if (this.mapType === MapType.WILDERNESS) {
+      this.wildernessEntities = this.wildernessEntities.filter(e => e.id !== entity.id);
+    } else if (this.mapType === MapType.TOWN) {
       this.townManager.removeEntity(entity);
     } else {
       this.dungeonEntities = this.dungeonEntities.filter(e => e.id !== entity.id);
@@ -505,7 +574,6 @@ export class Game {
 
   private updateFOV(): void {
     if (this.mapType === MapType.DUNGEON) {
-      // 地下城使用传统FOV
       for (let x = 0; x < this.dungeonMap.width; x++) {
         for (let y = 0; y < this.dungeonMap.height; y++) {
           this.dungeonMap.explored[x][y] = true;
@@ -528,8 +596,10 @@ export class Game {
 
   // ========== 输入处理 ==========
 
-  handleInput(key: string): void {
+  async handleInput(key: string): Promise<void> {
     if (this.gameOver) return;
+    
+    if (this.state === GameState.LOADING) return;
     
     if (this.state === GameState.COMBAT && this.combatState !== CombatState.PLAYER_TURN) {
       return;
@@ -537,20 +607,16 @@ export class Game {
 
     switch (this.state) {
       case GameState.EXPLORE:
-        this.handleExploreInput(key);
+        await this.handleExploreInput(key);
         break;
       case GameState.COMBAT:
-        this.handleCombatInput(key);
+        await this.handleCombatInput(key);
         break;
       case GameState.INVENTORY:
         this.handleInventoryInput(key);
         break;
       case GameState.LEVEL_UP:
         this.handleLevelUpInput(key);
-        break;
-      case GameState.MESSAGE:
-        this.state = this.inCombat ? GameState.COMBAT : GameState.EXPLORE;
-        this.onUpdate();
         break;
     }
   }
@@ -602,7 +668,7 @@ export class Game {
     }
   }
 
-  private handleExploreInput(key: string): void {
+  private async handleExploreInput(key: string): Promise<void> {
     let moved = false;
     let dx = 0, dy = 0;
 
@@ -639,15 +705,15 @@ export class Game {
     }
 
     if (moved) {
-      this.movePlayerExplore(dx, dy);
+      await this.movePlayerExplore(dx, dy);
     }
   }
 
-  private movePlayerExplore(dx: number, dy: number): void {
+  private async movePlayerExplore(dx: number, dy: number): Promise<void> {
     const newX = this.player.position.x + dx;
     const newY = this.player.position.y + dy;
 
-    // 在建筑内移动
+    // 建筑内移动
     if (this.inBuilding && this.currentInterior) {
       if (newX < 0 || newX >= this.currentInterior.width || 
           newY < 0 || newY >= this.currentInterior.height) {
@@ -659,10 +725,9 @@ export class Game {
         return;
       }
       
-      // 检查是否与NPC碰撞
       const npc = this.interiorManager.getInteriorEntityAt(this.currentInterior, newX, newY);
       if (npc) {
-        return; // 不能穿过NPC
+        return;
       }
       
       this.player.position.x = newX;
@@ -675,42 +740,62 @@ export class Game {
       return;
     }
 
-    // 检查是否有实体（NPC或敌人）
     const entityAtPosition = this.getEntityAt(newX, newY);
     
     if (entityAtPosition?.type === EntityType.ENEMY) {
-      this.startCombat(entityAtPosition);
+      await this.startCombat(entityAtPosition);
       return;
     }
     
-    // NPC有碰撞体积，不能穿过
     if (entityAtPosition?.type === EntityType.NPC) {
-      return; // 不能穿过NPC
+      return;
     }
 
     this.player.position.x = newX;
     this.player.position.y = newY;
     
-    // 更新城镇区块加载
     if (this.mapType === MapType.TOWN) {
       this.townManager.updatePlayerPosition(newX, newY);
       const chunkInfo = this.townManager.getCurrentChunkInfo();
-      if (this.currentChunk?.x !== chunkInfo.x || this.currentChunk?.y !== chunkInfo.y) {
-        this.addMessage(`进入 ${this.townManager.getAreaName(newX, newY)}`, '#00FF00');
+      if (chunkInfo.x < 0 || chunkInfo.x >= 3 || chunkInfo.y < 0 || chunkInfo.y >= 3) {
+        // 超出城镇边界，检查是否有传送门
+        await this.checkTownBoundary(chunkInfo.x, chunkInfo.y);
       }
     }
     
     this.updateFOV();
     
-    if (this.mapType === MapType.DUNGEON) {
-      this.checkCombatTrigger();
+    if (this.mapType === MapType.DUNGEON || this.mapType === MapType.WILDERNESS) {
+      await this.checkCombatTrigger();
     }
     
     this.onUpdate();
   }
 
-  private checkCombatTrigger(): void {
-    const nearbyEnemies = this.dungeonEntities.filter(e => {
+  /** 检查城镇边界，触发传送 */
+  private async checkTownBoundary(chunkX: number, chunkY: number): Promise<void> {
+    let direction: PortalDirection | null = null;
+    
+    if (chunkX < 0) direction = PortalDirection.WEST;
+    else if (chunkX >= 3) direction = PortalDirection.EAST;
+    else if (chunkY < 0) direction = PortalDirection.NORTH;
+    else if (chunkY >= 3) direction = PortalDirection.SOUTH;
+    
+    if (direction) {
+      // 先检查该方向是否有传送门
+      const portal = this.worldMap.getPortalInDirection(direction);
+      if (portal) {
+        this.addMessage(`到达城镇边界，发现通往${portal.label}的传送门！`, '#FFD700');
+        // 自动触发传送
+        await this.usePortal(direction);
+      } else {
+        this.addMessage('到达城镇边界，但这里被高墙阻挡了', '#808080');
+      }
+    }
+  }
+
+  private async checkCombatTrigger(): Promise<void> {
+    const nearbyEnemies = this.getAllEntities().filter(e => {
       if (e.type !== EntityType.ENEMY) return false;
       const dist = Math.abs(e.position.x - this.player.position.x) + 
                    Math.abs(e.position.y - this.player.position.y);
@@ -718,51 +803,94 @@ export class Game {
     });
     
     if (nearbyEnemies.length > 0) {
-      this.startCombat(nearbyEnemies[0]);
+      await this.startCombat(nearbyEnemies[0]);
     }
   }
 
   // ========== 战斗系统 ==========
 
-  private startCombat(enemy: Entity): void {
+  private async startCombat(enemy: Entity): Promise<void> {
+    // 显示战斗进入加载
+    this.state = GameState.LOADING;
+    this.loadingTarget = '战斗';
+    this.loadingProgress = 0;
+    this.loadingMessage = '遭遇敌人...';
+    this.onUpdate();
+
+    // 模拟加载进度
+    const steps = [
+      { progress: 30, message: '准备战斗...', delay: 80 },
+      { progress: 60, message: '进入战场...', delay: 80 },
+      { progress: 100, message: '战斗开始！', delay: 100 }
+    ];
+
+    for (const step of steps) {
+      await this.delay(step.delay);
+      this.loadingProgress = step.progress;
+      this.loadingMessage = step.message;
+      this.onUpdate();
+    }
+
+    await this.delay(150);
+
     this.inCombat = true;
     this.state = GameState.COMBAT;
     this.combatState = CombatState.PLAYER_TURN;
     
-    if (this.mapType === MapType.DUNGEON) {
-      this.combatEnemies = this.dungeonEntities.filter(e => {
-        if (e.type !== EntityType.ENEMY) return false;
-        const dist = Math.abs(e.position.x - this.player.position.x) + 
-                     Math.abs(e.position.y - this.player.position.y);
-        return dist <= 2;
-      });
-    } else {
-      // 城镇内不应该有战斗
-      this.combatEnemies = [enemy];
-    }
+    this.combatEnemies = this.getAllEntities().filter(e => {
+      if (e.type !== EntityType.ENEMY) return false;
+      const dist = Math.abs(e.position.x - this.player.position.x) + 
+                   Math.abs(e.position.y - this.player.position.y);
+      return dist <= 2;
+    });
     
     if (this.combatEnemies.length === 0) {
       this.combatEnemies = [enemy];
     }
     
     this.addMessage(`⚔️ 进入战斗！遭遇 ${enemy.name}`, '#FF0000');
+    this.loadingProgress = 0;
     this.onUpdate();
   }
 
-  private endCombat(): void {
+  private async endCombat(): Promise<void> {
+    // 显示战斗结束加载
+    this.state = GameState.LOADING;
+    this.loadingTarget = '探索';
+    this.loadingProgress = 0;
+    this.loadingMessage = '战斗结束...';
+    this.onUpdate();
+
+    // 模拟加载进度
+    const steps = [
+      { progress: 40, message: '拾取战利品...', delay: 80 },
+      { progress: 70, message: '恢复状态...', delay: 80 },
+      { progress: 100, message: '返回探索！', delay: 100 }
+    ];
+
+    for (const step of steps) {
+      await this.delay(step.delay);
+      this.loadingProgress = step.progress;
+      this.loadingMessage = step.message;
+      this.onUpdate();
+    }
+
+    await this.delay(150);
+
     this.inCombat = false;
     this.state = GameState.EXPLORE;
     this.combatState = CombatState.PLAYER_TURN;
     this.combatEnemies = [];
     this.addMessage('✓ 战斗结束', '#00FF00');
+    this.loadingProgress = 0;
     this.onUpdate();
   }
 
-  private handleCombatInput(key: string): void {
+  private async handleCombatInput(key: string): Promise<void> {
     switch (key) {
       case 'a':
       case 'arrowleft':
-        this.combatAttack();
+        await this.combatAttack();
         break;
       case 'd':
       case 'arrowright':
@@ -782,17 +910,17 @@ export class Game {
         this.openInventory();
         break;
       case 'r':
-        this.combatRetreat();
+        await this.combatRetreat();
         break;
       case 'escape':
-        this.combatRetreat();
+        await this.combatRetreat();
         break;
     }
   }
 
-  private combatAttack(): void {
+  private async combatAttack(): Promise<void> {
     if (this.combatEnemies.length === 0) {
-      this.endCombat();
+      await this.endCombat();
       return;
     }
     
@@ -815,7 +943,7 @@ export class Game {
       this.combatEnemies = this.combatEnemies.filter(e => e.id !== target.id);
       
       if (this.combatEnemies.length === 0) {
-        setTimeout(() => this.endCombat(), 500);
+        setTimeout(async () => await this.endCombat(), 500);
         return;
       }
     }
@@ -828,15 +956,58 @@ export class Game {
     this.endPlayerCombatTurn();
   }
 
-  private combatRetreat(): void {
+  private async combatRetreat(): Promise<void> {
     this.addMessage('你尝试撤退...', '#FFFF00');
     if (Math.random() < 0.5) {
       this.addMessage('成功撤退！', '#00FF00');
-      this.endCombat();
+      // 逃跑成功：将战斗中的怪物移动到玩家5格以外
+      this.repositionFledEnemies();
+      await this.endCombat();
     } else {
       this.addMessage('撤退失败！', '#FF0000');
       this.endPlayerCombatTurn();
     }
+  }
+
+  /** 逃跑成功后，将怪物重新定位到玩家5格以外 */
+  private repositionFledEnemies(): void {
+    const minDistance = 5;
+    const playerX = this.player.position.x;
+    const playerY = this.player.position.y;
+    
+    for (const enemy of this.combatEnemies) {
+      let placed = false;
+      let attempts = 0;
+      
+      while (!placed && attempts < 50) {
+        // 在玩家周围5格外随机选择位置
+        const angle = Math.random() * Math.PI * 2;
+        const distance = minDistance + Math.random() * 10; // 5-15格距离
+        
+        const newX = Math.floor(playerX + Math.cos(angle) * distance);
+        const newY = Math.floor(playerY + Math.sin(angle) * distance);
+        
+        // 检查位置是否有效（在地图内且可行走）
+        if (this.isInBounds(newX, newY)) {
+          const tile = this.getTile(newX, newY);
+          if (tile && tile.walkable && !this.getEntityAt(newX, newY)) {
+            // 更新怪物位置
+            enemy.position.x = newX;
+            enemy.position.y = newY;
+            placed = true;
+          }
+        }
+        attempts++;
+      }
+      
+      if (!placed) {
+        // 如果无法找到合适位置，将怪物从地图中移除
+        this.removeEntity(enemy);
+      }
+    }
+    
+    // 清空战斗中的敌人列表（它们已经被重新定位或移除）
+    this.combatEnemies = [];
   }
 
   private endPlayerCombatTurn(): void {
@@ -893,12 +1064,8 @@ export class Game {
       this.combatState = CombatState.PLAYER_TURN;
       this.onUpdate();
     } else if (this.combatEnemies.length === 0) {
-      this.endCombat();
+      await this.endCombat();
     }
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   // ========== 交互系统 ==========
@@ -908,9 +1075,8 @@ export class Game {
     const y = this.player.position.y;
     const tile = this.getTile(x, y);
     
-    // 如果在建筑内部，检查是否要离开
+    // 建筑内部
     if (this.inBuilding && this.currentInterior) {
-      // 检查是否在门口（假设门口在底部中央）
       const doorX = Math.floor(this.currentInterior.width / 2);
       const doorY = this.currentInterior.height - 1;
       if (x === doorX && y === doorY) {
@@ -918,7 +1084,6 @@ export class Game {
         return;
       }
       
-      // 与室内NPC对话
       const npc = this.interiorManager.getInteriorEntityAt(this.currentInterior, x, y);
       if (npc && npc.type === EntityType.NPC && npc.dialogue) {
         const line = npc.dialogue[Math.floor(Math.random() * npc.dialogue.length)];
@@ -932,22 +1097,19 @@ export class Game {
       return;
     }
     
-    // 检查周围是否有楼梯（距离1格内）
+    // 查找周围楼梯/传送门
     const nearbyStairs = this.findNearbyStairs(x, y);
     
-    // 城镇地下城入口
     if (nearbyStairs === 'down' && this.mapType === MapType.TOWN) {
       this.enterDungeon();
       return;
     }
     
-    // 地下城上楼楼梯 - 返回城镇
     if (nearbyStairs === 'up' && this.mapType === MapType.DUNGEON) {
       this.returnToTown();
       return;
     }
     
-    // 地下城下楼楼梯 - 进入下一层
     if (nearbyStairs === 'down' && this.mapType === MapType.DUNGEON) {
       this.dungeonLevel++;
       this.addMessage(`进入地下城第 ${this.dungeonLevel} 层...`, '#FFD700');
@@ -957,7 +1119,18 @@ export class Game {
       return;
     }
     
-    // 检查是否在建筑门口
+    // 野外传送门
+    if (this.mapType === MapType.WILDERNESS && this.wildernessMap) {
+      const portal = this.wildernessMap.portals.find(p => 
+        Math.abs(p.x - x) + Math.abs(p.y - y) <= 1
+      );
+      if (portal) {
+        this.usePortalByTarget(portal.targetMapId);
+        return;
+      }
+    }
+    
+    // 城镇建筑
     if (this.mapType === MapType.TOWN) {
       const building = this.townManager.getBuildingAt(x, y);
       if (building && this.interiorManager.isBuildingEntrance(x, y, building)) {
@@ -966,56 +1139,111 @@ export class Game {
       }
     }
     
-    // 检查附近的可互动实体
+    // 周围NPC
     const nearby = this.getAllEntities().filter(e => {
       const dx = Math.abs(e.position.x - x);
       const dy = Math.abs(e.position.y - y);
       return dx <= 1 && dy <= 1 && !(dx === 0 && dy === 0);
     });
 
-    if (nearby.length === 0) {
-      this.addMessage('附近没有可以互动的对象', '#808080');
+    if (nearby.length > 0 && nearby[0].type === EntityType.NPC) {
+      const npc = nearby[0];
+      if (npc.dialogue) {
+        const line = npc.dialogue[Math.floor(Math.random() * npc.dialogue.length)];
+        this.addMessage(`${npc.name}: "${line}"`, '#FFD700');
+      }
       this.onUpdate();
       return;
     }
-
-    const entity = nearby[0];
     
-    switch (entity.type) {
-      case EntityType.NPC:
-        if (entity.dialogue) {
-          const line = entity.dialogue[Math.floor(Math.random() * entity.dialogue.length)];
-          this.addMessage(`${entity.name}: "${line}"`, '#FFD700');
+    // 宝箱
+    const chest = this.getAllEntities().find(e => 
+      e.type === EntityType.CHEST &&
+      Math.abs(e.position.x - x) + Math.abs(e.position.y - y) <= 1
+    );
+    if (chest && !chest.isOpen && chest.loot) {
+      chest.isOpen = true;
+      chest.char = '📭';
+      this.addMessage(`打开了宝箱！`, '#FFD700');
+      
+      chest.loot.forEach(itemId => {
+        const item = createItem(itemId);
+        if (item) {
+          this.addItemToInventory(item);
+          this.addMessage(`获得: ${item.name}`, '#00FF00');
         }
-        break;
-        
-      case EntityType.CHEST:
-        if (!entity.isOpen && entity.loot) {
-          entity.isOpen = true;
-          entity.char = '📭';
-          this.addMessage(`打开了宝箱！`, '#FFD700');
-          
-          entity.loot.forEach(itemId => {
-            const item = createItem(itemId);
-            if (item) {
-              this.addItemToInventory(item);
-              this.addMessage(`获得: ${item.name}`, '#00FF00');
-            }
-          });
-          
-          if (Math.random() < 0.3) {
-            const extraLoot = getRandomLoot();
-            if (extraLoot) {
-              this.addItemToInventory(extraLoot);
-              this.addMessage(`额外获得: ${extraLoot.name}`, '#00FF00');
-            }
-          }
-        } else if (entity.isOpen) {
-          this.addMessage('宝箱已经空了', '#808080');
+      });
+      
+      if (Math.random() < 0.3) {
+        const extraLoot = getRandomLoot();
+        if (extraLoot) {
+          this.addItemToInventory(extraLoot);
+          this.addMessage(`额外获得: ${extraLoot.name}`, '#00FF00');
         }
-        break;
+      }
+      this.onUpdate();
+      return;
     }
     
+    this.addMessage('附近没有可以互动的对象', '#808080');
+    this.onUpdate();
+  }
+
+  private findNearbyStairs(x: number, y: number): 'up' | 'down' | null {
+    const positions = [
+      { x: x, y: y },
+      { x: x+1, y: y },
+      { x: x-1, y: y },
+      { x: x, y: y+1 },
+      { x: x, y: y-1 },
+    ];
+    
+    for (const pos of positions) {
+      if (this.isInBounds(pos.x, pos.y)) {
+        const tile = this.getTile(pos.x, pos.y);
+        if (tile.char === '⬆️') return 'up';
+        if (tile.char === '⬇️') return 'down';
+      }
+    }
+    return null;
+  }
+
+  private async usePortalByTarget(targetId: string): Promise<void> {
+    const targetNode = this.worldMap.switchToNode(targetId);
+    if (targetNode) {
+      await this.loadCurrentWorldNode();
+      this.updateFOV();
+      this.onUpdate();
+    }
+  }
+
+  private enterBuilding(building: Building): void {
+    this.currentBuilding = building;
+    this.currentInterior = this.interiorManager.getInterior(building);
+    this.inBuilding = true;
+    
+    this.player.position = {
+      x: Math.floor(this.currentInterior.width / 2),
+      y: this.currentInterior.height - 1
+    };
+    
+    this.addMessage(`进入 ${building.name}`, '#00FF00');
+    this.onUpdate();
+  }
+
+  private exitBuilding(): void {
+    if (!this.currentBuilding) return;
+    
+    this.player.position = {
+      x: this.currentBuilding.doorX,
+      y: this.currentBuilding.doorY
+    };
+    
+    this.inBuilding = false;
+    this.currentInterior = null;
+    this.currentBuilding = null;
+    
+    this.addMessage('离开建筑', '#808080');
     this.onUpdate();
   }
 
@@ -1225,23 +1453,6 @@ export class Game {
     });
   }
 
-  private getEquipmentStats(): { attack: number; defense: number; hp: number; mp: number; speed: number; critical: number } {
-    const stats = { attack: 0, defense: 0, hp: 0, mp: 0, speed: 0, critical: 0 };
-    
-    Object.values(this.equipment).forEach(item => {
-      if (item?.stats) {
-        stats.attack += item.stats.attack || 0;
-        stats.defense += item.stats.defense || 0;
-        stats.hp += item.stats.hp || 0;
-        stats.mp += item.stats.mp || 0;
-        stats.speed += item.stats.speed || 0;
-        stats.critical += item.stats.critical || 0;
-      }
-    });
-    
-    return stats;
-  }
-
   // ========== 技能系统 ==========
 
   getAvailableSkills(): Skill[] {
@@ -1334,18 +1545,6 @@ export class Game {
             this.addMessage(`${target.name} 被眩晕了！`, '#FFFF00');
           }
           break;
-        case 'poison':
-          if (target) {
-            if (!target.buffs) target.buffs = [];
-            target.buffs.push({
-              type: 'poison',
-              value: effect.value,
-              duration: effect.duration || 3,
-              source: skill.name
-            });
-            this.addMessage(`${target.name} 中毒了！`, '#8B008B');
-          }
-          break;
       }
     }
   }
@@ -1368,8 +1567,12 @@ export class Game {
         switch (effect.type) {
           case 'damage':
             const damage = Math.floor((enemy.attack || 5) * effect.value);
-            this.player.hp -= damage;
-            this.addMessage(`受到 ${damage} 点伤害`, '#FF0000');
+            if (this.godMode) {
+              this.addMessage(`[无敌] 免疫了 ${damage} 点伤害`, '#FFD700');
+            } else {
+              this.player.hp -= damage;
+              this.addMessage(`受到 ${damage} 点伤害`, '#FF0000');
+            }
             break;
           case 'heal':
             if (enemy.hp !== undefined) {
@@ -1386,8 +1589,12 @@ export class Game {
 
   private enemyNormalAttack(enemy: Entity): void {
     const damage = Math.max(1, (enemy.attack || 5) - this.player.defense - this.getEquipmentStats().defense);
-    this.player.hp -= damage;
-    this.addMessage(`${enemy.name} 攻击了你，造成 ${damage} 点伤害`, '#FF0000');
+    if (this.godMode) {
+      this.addMessage(`[无敌] ${enemy.name} 的攻击被免疫了`, '#FFD700');
+    } else {
+      this.player.hp -= damage;
+      this.addMessage(`${enemy.name} 攻击了你，造成 ${damage} 点伤害`, '#FF0000');
+    }
   }
 
   private reduceCooldowns(): void {
@@ -1413,8 +1620,12 @@ export class Game {
       const buff = this.player.buffs[i];
       
       if (buff.type === 'poison') {
-        this.player.hp -= buff.value;
-        this.addMessage(`中毒效果造成 ${buff.value} 点伤害`, '#8B008B');
+        if (this.godMode) {
+          this.addMessage(`[无敌] 中毒效果被免疫了`, '#FFD700');
+        } else {
+          this.player.hp -= buff.value;
+          this.addMessage(`中毒效果造成 ${buff.value} 点伤害`, '#8B008B');
+        }
       }
       
       buff.duration--;
@@ -1486,14 +1697,21 @@ export class Game {
     return attack;
   }
 
-  private getPlayerDefense(): number {
-    let defense = this.player.defense + this.getEquipmentStats().defense;
-    for (const buff of this.player.buffs) {
-      if (buff.type === 'defense') {
-        defense += Math.floor(this.player.defense * buff.value);
+  private getEquipmentStats(): { attack: number; defense: number; hp: number; mp: number; speed: number; critical: number } {
+    const stats = { attack: 0, defense: 0, hp: 0, mp: 0, speed: 0, critical: 0 };
+    
+    Object.values(this.equipment).forEach(item => {
+      if (item?.stats) {
+        stats.attack += item.stats.attack || 0;
+        stats.defense += item.stats.defense || 0;
+        stats.hp += item.stats.hp || 0;
+        stats.mp += item.stats.mp || 0;
+        stats.speed += item.stats.speed || 0;
+        stats.critical += item.stats.critical || 0;
       }
-    }
-    return defense;
+    });
+    
+    return stats;
   }
 
   // ========== 消息系统 ==========
@@ -1525,6 +1743,12 @@ export class Game {
   getConfig(): GameConfig { return this.config; }
   getTownManager(): TownMapManager { return this.townManager; }
   getDungeonMap(): GameMap { return this.dungeonMap; }
+  getMapType(): MapType { return this.mapType; }
+  getWorldMap(): WorldMapManager { return this.worldMap; }
+  getWildernessMap(): WildernessMap | null { return this.wildernessMap; }
+  isInBuilding(): boolean { return this.inBuilding; }
+  getCurrentInterior(): BuildingInterior | null { return this.currentInterior; }
+  getCurrentBuilding(): Building | null { return this.currentBuilding; }
 }
 
-export { ROT, DUNGEON_TILES, RARITY_COLORS, ITEM_TYPE_ICONS };
+export { ROT, DUNGEON_TILES };

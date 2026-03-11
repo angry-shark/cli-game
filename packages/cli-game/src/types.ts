@@ -15,7 +15,8 @@ export enum GameState {
   INVENTORY = 'inventory',
   MESSAGE = 'message',
   LEVEL_UP = 'level_up',
-  GAME_OVER = 'game_over'
+  GAME_OVER = 'game_over',
+  LOADING = 'loading'
 }
 
 /** 战斗回合状态 */
