@@ -162,6 +162,7 @@ export interface Tile {
   walkable: boolean;
   transparent: boolean;
   width?: number;
+  description?: string;
 }
 
 /** 地图数据 */

@@ -63,7 +63,7 @@ function StartMenu({ onStart }: { onStart: () => void }) {
         <Text>{'║    WASD / 方向键  - 移动                 ║'}</Text>
       </Box>
       <Box>
-        <Text>{'║    E              - 互动/攻击/下楼梯     ║'}</Text>
+        <Text>{'║    E              - 互动(站楼梯旁)        ║'}</Text>
       </Box>
       <Box>
         <Text>{'║    G              - 拾取物品             ║'}</Text>
@@ -83,10 +83,13 @@ function StartMenu({ onStart }: { onStart: () => void }) {
         <Text>{'║  图例:                                   ║'}</Text>
       </Box>
       <Box>
-        <Text>{'║    🧙 玩家  👴 NPC  👺 怪物  📦 宝箱      ║'}</Text>
+        <Text>{'║    🧙 玩家  vv NPC  ee 怪物  CC 宝箱      ║'}</Text>
       </Box>
       <Box>
-        <Text>{'║  ██亮墙  ░░暗墙  空格地板  ▼楼梯         ║'}</Text>
+        <Text>{'║  ██墙  ░░地  ⬆️上 ⬇️下 楼梯                ║'}</Text>
+      </Box>
+      <Box>
+        <Text>{'║  🚪门口(按E) 💰商店 🍺旅馆 ⚒️铁匠          ║'}</Text>
       </Box>
       <Box marginY={1}>
         <Text bold color="yellow">

@@ -1,10 +1,11 @@
 /**
  * 游戏主组件 - 使用 Ink
+ * 支持城镇和地下城双地图渲染
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
-import { Game, ROT, TILES, RARITY_COLORS, ITEM_TYPE_ICONS } from '../game.js';
+import { Game, ROT, DUNGEON_TILES, RARITY_COLORS, ITEM_TYPE_ICONS, MapType } from '../game.js';
 import { GameState, ItemType, CombatState } from '../types.js';
 
 interface GameComponentProps {
@@ -13,7 +14,6 @@ interface GameComponentProps {
 
 /** 颜色辅助函数 */
 function hexToAnsi(hex: string): string {
-  // 简单的颜色映射
   const colorMap: Record<string, string> = {
     '#000000': 'black',
     '#FFFFFF': 'white',
@@ -40,7 +40,15 @@ function hexToAnsi(hex: string): string {
     '#9370DB': 'magenta',
     '#FF69B4': 'magenta',
     '#DC143C': 'red',
-    '#4169E1': 'blue'
+    '#4169E1': 'blue',
+    '#2F2F2F': 'black',
+    '#2F1B0C': 'black',
+    '#5c2e0c': 'black',
+    '#3d2714': 'black',
+    '#2c5270': 'blue',
+    '#145214': 'green',
+    '#1a2f0a': 'green',
+    '#b8860b': 'yellow'
   };
   return colorMap[hex.toLowerCase()] || 'white';
 }
@@ -79,20 +87,10 @@ export default function GameComponent({ game }: GameComponentProps) {
   });
 
   const state = game.getState();
-  const map = game.getMap();
   const player = game.getPlayer();
-  const entities = game.getEntities();
   const messages = game.getMessages();
   const config = game.getConfig();
-
-  // 计算视口
-  const viewportWidth = Math.min(config.viewportWidth, stdout.columns - 22);
-  const viewportHeight = Math.min(config.viewportHeight, stdout.rows - 6);
-  
-  const vpStartX = Math.max(0, Math.min(player.position.x - Math.floor(viewportWidth / 2), map.width - viewportWidth));
-  const vpStartY = Math.max(0, Math.min(player.position.y - Math.floor(viewportHeight / 2), map.height - viewportHeight));
-  const vpEndX = Math.min(map.width, vpStartX + viewportWidth);
-  const vpEndY = Math.min(map.height, vpStartY + viewportHeight);
+  const mapType = game.getMapType();
 
   // 渲染游戏结束画面
   if (game.isGameOver()) {
@@ -115,6 +113,19 @@ export default function GameComponent({ game }: GameComponentProps) {
     );
   }
 
+  // 渲染建筑内部
+  if (game.isInBuilding() && game.getCurrentInterior()) {
+    return (
+      <BuildingInteriorView 
+        game={game} 
+        player={player} 
+        messages={messages}
+        config={config}
+        stdout={stdout}
+      />
+    );
+  }
+
   // 渲染战斗界面
   if (state === GameState.COMBAT) {
     return <CombatView game={game} />;
@@ -130,35 +141,190 @@ export default function GameComponent({ game }: GameComponentProps) {
     return <LevelUpView game={game} />;
   }
 
-  // 渲染主游戏界面（探索模式）
+  // 根据地图类型渲染
+  if (mapType === MapType.TOWN) {
+    return (
+      <TownView 
+        game={game} 
+        player={player} 
+        messages={messages} 
+        config={config}
+        stdout={stdout}
+      />
+    );
+  } else {
+    return (
+      <DungeonView 
+        game={game} 
+        player={player} 
+        messages={messages} 
+        config={config}
+        stdout={stdout}
+      />
+    );
+  }
+}
+
+/** 辅助函数：将实体列表转换为世界坐标 */
+function getEntitiesWithWorldCoords(townManager: any, entities: any[]): any[] {
+  const chunkSize = 40; // 区块大小
+  return entities.map(e => {
+    // 从实体id解析区块坐标
+    // ID格式: type_chunkX_chunkY_... 或 type_chunkX_chunkY
+    const parts = e.id.split('_');
+    
+    // 找到所有的数字部分（区块坐标）
+    const numbers: number[] = [];
+    for (const part of parts) {
+      const num = parseInt(part);
+      if (!isNaN(num)) {
+        numbers.push(num);
+      }
+    }
+    
+    // 应该至少有两个数字（chunkX 和 chunkY）
+    if (numbers.length >= 2) {
+      const chunkX = numbers[numbers.length - 2];
+      const chunkY = numbers[numbers.length - 1];
+      return {
+        ...e,
+        worldX: chunkX * chunkSize + e.position.x,
+        worldY: chunkY * chunkSize + e.position.y
+      };
+    }
+    
+    // 如果解析失败，假设是本地坐标等于世界坐标
+    return { ...e, worldX: e.position.x, worldY: e.position.y };
+  });
+}
+
+/** 城镇视图 */
+function TownView({ game, player, messages, config, stdout }: any) {
+  const townManager = game.getTownManager();
+  const chunkInfo = townManager.getCurrentChunkInfo();
+  const areaName = townManager.getAreaName(player.position.x, player.position.y);
+  
+  const viewportWidth = Math.min(config.viewportWidth, stdout.columns - 22);
+  const viewportHeight = Math.min(config.viewportHeight, stdout.rows - 6);
+  
+  // 获取视口瓦片
+  const viewportTiles = townManager.getViewport(player.position.x, player.position.y, viewportWidth, viewportHeight);
+  const entities = getEntitiesWithWorldCoords(townManager, townManager.getAllEntities());
+
   return (
     <Box flexDirection="column">
       {/* 状态栏 */}
       <Box>
-        <StatusBar game={game} />
+        <TownStatusBar game={game} areaName={areaName} chunkInfo={chunkInfo} />
       </Box>
 
       {/* 主区域：地图 + 信息面板 */}
       <Box>
-        {/* 地图区域 - 拼接成整行渲染，无间隔 */}
+        {/* 地图区域 */}
+        <Box flexDirection="column" borderStyle="single">
+          {viewportTiles.map((row: any[], rowIndex: number) => {
+            const worldY = player.position.y - Math.floor(viewportHeight / 2) + rowIndex;
+            const halfW = Math.floor(viewportWidth / 2);
+            let line = '';
+            
+            for (let colIndex = 0; colIndex < row.length; colIndex++) {
+              const worldX = player.position.x - halfW + colIndex;
+              
+              // 检查是否是玩家位置（玩家始终在视口中心）
+              if (colIndex === halfW && rowIndex === Math.floor(viewportHeight / 2)) {
+                line += '🧙';
+                continue;
+              }
+              
+              // 检查是否有实体（使用世界坐标比较）
+              const entity = entities.find((e: any) => 
+                e.worldX === worldX && e.worldY === worldY
+              );
+              
+              if (entity) {
+                line += entity.char;
+                continue;
+              }
+              
+              // 显示地图
+              const tile = row[colIndex];
+              line += tile.char;
+            }
+            
+            return (
+              <Box key={rowIndex}>
+                <Text>{line}</Text>
+              </Box>
+            );
+          })}
+        </Box>
+
+        {/* 右侧面板 */}
+        <Box flexDirection="column" marginLeft={1} width={20}>
+          <PlayerPanel player={player} game={game} />
+        </Box>
+      </Box>
+
+      {/* 消息日志 */}
+      <Box flexDirection="column" borderStyle="single" paddingX={1} marginTop={1} height={6}>
+        <Text bold underline>消息</Text>
+        {messages.slice(-5).map((msg: any, i: number) => (
+          <Text key={i} color={hexToAnsi(msg.color)}>
+            {msg.text.length > viewportWidth + 18 ? msg.text.slice(0, viewportWidth + 15) + '...' : msg.text}
+          </Text>
+        ))}
+      </Box>
+
+      {/* 控制提示 */}
+      <Box marginTop={1}>
+        <Text color="gray">
+          [WASD/↑↓←→]移动 [E]互动(🚪⬇️旁) [I]背包 [ESC]退出
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
+/** 地下城视图 */
+function DungeonView({ game, player, messages, config, stdout }: any) {
+  const map = game.getDungeonMap();
+  const entities = game.getDungeonMap() ? [] : game.getEntities(); // 地下城使用自己的实体
+  const dungeonEntities = (game as any).dungeonEntities || [];
+  
+  const viewportWidth = Math.min(config.viewportWidth, stdout.columns - 22);
+  const viewportHeight = Math.min(config.viewportHeight, stdout.rows - 6);
+  
+  const vpStartX = Math.max(0, Math.min(player.position.x - Math.floor(viewportWidth / 2), map.width - viewportWidth));
+  const vpStartY = Math.max(0, Math.min(player.position.y - Math.floor(viewportHeight / 2), map.height - viewportHeight));
+  const vpEndX = Math.min(map.width, vpStartX + viewportWidth);
+  const vpEndY = Math.min(map.height, vpStartY + viewportHeight);
+
+  return (
+    <Box flexDirection="column">
+      {/* 状态栏 */}
+      <Box>
+        <DungeonStatusBar game={game} />
+      </Box>
+
+      {/* 主区域：地图 + 信息面板 */}
+      <Box>
+        {/* 地图区域 */}
         <Box flexDirection="column" borderStyle="single">
           {Array.from({ length: vpEndY - vpStartY }, (_, row) => {
             const y = vpStartY + row;
             let line = '';
-            let colors: string[] = [];
             
             for (let x = vpStartX; x < vpEndX; x++) {
               const isVisible = map.visible[x]?.[y];
               const isExplored = map.explored[x]?.[y];
               
-              // 未探索区域显示为黑色块
               if (!isExplored) {
                 line += '██';
                 continue;
               }
               
-              // 检查是否有实体 - 只在视野内显示
-              const entity = entities.find(e => e.position.x === x && e.position.y === y);
+              // 检查是否有实体
+              const entity = dungeonEntities.find((e: any) => e.position.x === x && e.position.y === y);
               
               // 检查是否是玩家位置
               if (player.position.x === x && player.position.y === y) {
@@ -174,9 +340,7 @@ export default function GameComponent({ game }: GameComponentProps) {
               
               // 显示地图
               const tile = map.tiles[x][y];
-              // 视野外显示为阴影，视野内正常显示
               if (!isVisible) {
-                // 阴影区域：墙壁显示为暗色░░，地板显示为两个空格
                 line += tile.walkable ? '  ' : '░░';
               } else {
                 line += tile.char;
@@ -200,7 +364,7 @@ export default function GameComponent({ game }: GameComponentProps) {
       {/* 消息日志 */}
       <Box flexDirection="column" borderStyle="single" paddingX={1} marginTop={1} height={6}>
         <Text bold underline>消息</Text>
-        {messages.slice(-5).map((msg, i) => (
+        {messages.slice(-5).map((msg: any, i: number) => (
           <Text key={i} color={hexToAnsi(msg.color)}>
             {msg.text.length > viewportWidth + 18 ? msg.text.slice(0, viewportWidth + 15) + '...' : msg.text}
           </Text>
@@ -210,15 +374,38 @@ export default function GameComponent({ game }: GameComponentProps) {
       {/* 控制提示 */}
       <Box marginTop={1}>
         <Text color="gray">
-          [WASD/↑↓←→]移动 [E]互动/下楼梯 [G]拾取 [I]背包 [ESC]退出
+          [WASD/↑↓←→]移动 [E]互动(⬆️⬇️旁) [G]拾取 [I]背包 [ESC]退出
         </Text>
       </Box>
     </Box>
   );
 }
 
-/** 状态栏组件 */
-function StatusBar({ game }: { game: Game }) {
+/** 城镇状态栏 */
+function TownStatusBar({ game, areaName, chunkInfo }: { game: Game; areaName: string; chunkInfo: any }) {
+  const player = game.getPlayer();
+  
+  return (
+    <Box width="100%" justifyContent="space-between" borderStyle="single" paddingX={1}>
+      <Box>
+        <Text color="yellow">🧙 {player.name}</Text>
+        <Text> | </Text>
+        <Text color="green">🏘️ {areaName}</Text>
+        <Text dimColor> ({chunkInfo.x},{chunkInfo.y})</Text>
+      </Box>
+      <Box>
+        <Text color="green">HP: {player.hp}/{player.maxHp}</Text>
+        <Text> | </Text>
+        <Text color="blue">MP: {player.mp}/{player.maxMp}</Text>
+        <Text> | </Text>
+        <Text color="yellow">💰 {game.getGold()}</Text>
+      </Box>
+    </Box>
+  );
+}
+
+/** 地下城状态栏 */
+function DungeonStatusBar({ game }: { game: Game }) {
   const player = game.getPlayer();
   const level = game.getDungeonLevel();
   const inCombat = game.isInCombat();
@@ -229,8 +416,8 @@ function StatusBar({ game }: { game: Game }) {
         <Text color="yellow">🧙 {player.name}</Text>
         <Text> | 层: {level}</Text>
         <Text> | </Text>
-        <Text color={inCombat ? 'red' : 'green'}>
-          {inCombat ? '⚔️ 战斗中' : '🗺️ 探索中'}
+        <Text color={inCombat ? 'red' : 'red'}>
+          {inCombat ? '⚔️ 战斗中' : '🏰 地下城'}
         </Text>
       </Box>
       <Box>
@@ -301,7 +488,7 @@ function InventoryView({ game }: { game: Game }) {
 
   return (
     <Box flexDirection="column">
-      <Text bold>📦 背包 {filter ? `(${filterNames[filter] || filter})` : '(全部)'}</Text>
+      <Text bold>📦背包 {filter ? `(${filterNames[filter] || filter})` : '(全部)'}</Text>
       <Text color="gray">容量: {inventory.length}/30</Text>
       
       <Box marginTop={1}>
@@ -455,20 +642,18 @@ function CombatView({ game }: { game: Game }) {
           <Text bold>技能</Text>
           <Box>
             {skills.slice(0, 4).map((skill, i) => {
-              // 判断技能状态
               const isOnCooldown = skill.currentCooldown > 0;
               const isInsufficientMp = player.mp < skill.mpCost;
               const isAvailable = !isOnCooldown && !isInsufficientMp;
               
-              // 根据状态选择颜色
-              let statusColor = 'green';  // 可用
+              let statusColor = 'green';
               let statusText = `${skill.mpCost}MP`;
               
               if (isOnCooldown) {
-                statusColor = 'red';  // 冷却中
+                statusColor = 'red';
                 statusText = `CD:${skill.currentCooldown}`;
               } else if (isInsufficientMp) {
-                statusColor = 'yellow';  // 法力不足
+                statusColor = 'yellow';
                 statusText = `!${skill.mpCost}MP`;
               }
               
@@ -565,6 +750,99 @@ function LevelUpView({ game }: { game: Game }) {
       <Box marginTop={2}>
         <Text color="gray">
           {player.statPoints > 0 ? '[1-4]分配点数 [Enter]确认' : '按任意键继续'}
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
+/** 建筑内部视图 */
+function BuildingInteriorView({ game, player, messages, config, stdout }: any) {
+  const interior = game.getCurrentInterior();
+  const building = game.getCurrentBuilding();
+  
+  return (
+    <Box flexDirection="column">
+      {/* 状态栏 */}
+      <Box width="100%" justifyContent="space-between" borderStyle="single" paddingX={1}>
+        <Box>
+          <Text color="yellow">🧙 {player.name}</Text>
+          <Text> | </Text>
+          <Text color="cyan">🏠 {building?.name || '建筑'}</Text>
+        </Box>
+        <Box>
+          <Text color="green">HP: {player.hp}/{player.maxHp}</Text>
+          <Text> | </Text>
+          <Text color="blue">MP: {player.mp}/{player.maxMp}</Text>
+        </Box>
+      </Box>
+
+      {/* 室内地图 */}
+      <Box>
+        <Box flexDirection="column" borderStyle="single" marginTop={1}>
+          {interior.tiles[0].map((_: any, rowY: number) => {
+            let line = '';
+            for (let colX = 0; colX < interior.width; colX++) {
+              // 检查是否是玩家位置
+              if (player.position.x === colX && player.position.y === rowY) {
+                line += '🧙';
+                continue;
+              }
+              
+              // 检查是否有NPC
+              const npc = interior.npcs.find((e: any) => 
+                e.position.x === colX && e.position.y === rowY
+              );
+              
+              if (npc) {
+                line += npc.char;
+                continue;
+              }
+              
+              // 显示地砖
+              line += interior.tiles[colX][rowY].char;
+            }
+            return (
+              <Box key={rowY}>
+                <Text>{line}</Text>
+              </Box>
+            );
+          })}
+        </Box>
+
+        {/* 右侧面板 - 显示室内NPC信息和出口提示 */}
+        <Box flexDirection="column" marginLeft={1} width={25} borderStyle="single" paddingX={1}>
+          <Text bold underline>{building?.name || '室内'}</Text>
+          <Box marginY={1}>
+            <Text color="yellow">🚪 ⬅️ ➡️</Text>
+            <Text color="gray" dimColor>出口方向</Text>
+          </Box>
+          <Text bold underline>里面的人</Text>
+          {interior.npcs.map((npc: any, i: number) => (
+            <Box key={i} marginY={1}>
+              <Text>{npc.char} {npc.name}</Text>
+            </Box>
+          ))}
+          {interior.npcs.length === 0 && (
+            <Text color="gray">（空无一人）</Text>
+          )}
+        </Box>
+      </Box>
+
+      {/* 消息日志 */}
+      <Box flexDirection="column" borderStyle="single" paddingX={1} marginTop={1} height={5}>
+        <Text bold underline>消息</Text>
+        {messages.slice(-4).map((msg: any, i: number) => (
+          <Text key={i} color={hexToAnsi(msg.color)}>
+            {msg.text.length > 50 ? msg.text.slice(0, 47) + '...' : msg.text}
+          </Text>
+        ))}
+      </Box>
+
+      {/* 控制提示 */}
+      <Box marginTop={1}>
+        <Text color="gray">
+          [WASD/↑↓←→]移动 [E]对话/🚪离开 [I]背包 [ESC]退出
         </Text>
       </Box>
     </Box>
