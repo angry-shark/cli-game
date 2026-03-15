@@ -15,11 +15,12 @@ import { createItem, getRandomLoot, RARITY_COLORS, ITEM_TYPE_ICONS } from './ite
 // 重新导出物品相关常量
 export { RARITY_COLORS, ITEM_TYPE_ICONS };
 import { createSkill, getEnemyDefaultSkill } from './skills.js';
-import { TownMapManager } from './town-manager.js';
+import { TownMapManager } from './town-map-manager.js';
 import { TOWN_TILES, Building } from './town-generator.js';
 import { InteriorManager, BuildingInterior } from './building-interior.js';
 import { WorldMapManager, WorldMapType, PortalDirection } from './world-map.js';
-import { WildernessGenerator, WildernessMap, WILDERNESS_TILES } from './wilderness-generator.js';
+import { WildernessMapManager } from './wilderness-map-manager.js';
+import { WildernessMap } from './wilderness-generator.js';
 
 /** 当前地图类型 */
 export enum MapType {
@@ -96,9 +97,7 @@ export class Game {
   private inBuilding: boolean = false;
   
   // 野外系统
-  private wildernessMap: WildernessMap | null = null;
-  private wildernessEntities: Entity[] = [];
-  private wildernessGenerator: WildernessGenerator;
+  private wildernessManager: WildernessMapManager;
   
   // 地下城系统
   private dungeonMap!: GameMap;
@@ -160,8 +159,8 @@ export class Game {
       baseMaxHp: 100, baseMaxMp: 50
     };
     
-    // 初始化野外生成器
-    this.wildernessGenerator = new WildernessGenerator({ difficulty: 1 });
+    // 初始化野外管理器
+    this.wildernessManager = new WildernessMapManager({ difficulty: 1 });
     
     // 初始化城镇系统
     this.townManager = new TownMapManager(26);
@@ -281,12 +280,12 @@ export class Game {
   /** 加载野外地图 */
   private loadWilderness(node: { id: string; name: string; difficulty?: number }): void {
     const difficulty = node.difficulty || 1;
-    // 根据难度设置生成器 - 降低怪物密度
-    this.wildernessGenerator = new WildernessGenerator({
+    // 根据难度设置管理器 - 降低怪物密度
+    this.wildernessManager = new WildernessMapManager({
       width: 60,
       height: 30,
       difficulty: difficulty,
-      monsterDensity: 0.02 + difficulty * 0.005, // 降低基础密度
+      monsterDensity: 0.02 + difficulty * 0.005,
       resourceDensity: 0.08
     });
     
@@ -298,16 +297,13 @@ export class Game {
     })) || [];
     
     // 生成野外地图
-    this.wildernessMap = this.wildernessGenerator.generateMap(portals);
-    this.wildernessEntities = this.wildernessGenerator.generateMonsters(this.wildernessMap);
+    this.wildernessManager.generate(portals);
     
     // 设置玩家位置（从第一个传送门附近开始）
-    if (this.wildernessMap.portals.length > 0) {
-      const entryPortal = this.wildernessMap.portals[0];
-      this.player.position = {
-        x: entryPortal.x,
-        y: entryPortal.y + 2 // 传送门下方
-      };
+    const portalList = this.wildernessManager.getPortals();
+    if (portalList.length > 0) {
+      const entryPosition = this.wildernessManager.getEntryPosition(portalList[0]);
+      this.player.position = entryPosition;
     } else {
       this.player.position = { x: 30, y: 15 };
     }
@@ -494,8 +490,8 @@ export class Game {
   // ========== 地图查询 ==========
 
   private isInBounds(x: number, y: number): boolean {
-    if (this.mapType === MapType.WILDERNESS && this.wildernessMap) {
-      return x >= 0 && x < this.wildernessMap.width && y >= 0 && y < this.wildernessMap.height;
+    if (this.mapType === MapType.WILDERNESS) {
+      return this.wildernessManager.isInBounds(x, y);
     }
     if (this.mapType === MapType.DUNGEON) {
       return x >= 0 && x < this.dungeonMap.width && y >= 0 && y < this.dungeonMap.height;
@@ -504,9 +500,8 @@ export class Game {
   }
 
   private isTransparent(x: number, y: number): boolean {
-    if (this.mapType === MapType.WILDERNESS && this.wildernessMap) {
-      if (!this.isInBounds(x, y)) return false;
-      return this.wildernessMap.tiles[x][y].transparent;
+    if (this.mapType === MapType.WILDERNESS) {
+      return this.wildernessManager.isTransparent(x, y);
     }
     if (this.mapType === MapType.TOWN) {
       const tile = this.townManager.getTile(x, y);
@@ -517,9 +512,8 @@ export class Game {
   }
 
   private isWalkable(x: number, y: number): boolean {
-    if (this.mapType === MapType.WILDERNESS && this.wildernessMap) {
-      if (!this.isInBounds(x, y)) return false;
-      return this.wildernessMap.tiles[x][y].walkable;
+    if (this.mapType === MapType.WILDERNESS) {
+      return this.wildernessManager.isWalkable(x, y);
     }
     if (this.mapType === MapType.TOWN) {
       return this.townManager.isWalkable(x, y);
@@ -529,9 +523,8 @@ export class Game {
   }
 
   private getTile(x: number, y: number): Tile {
-    if (this.mapType === MapType.WILDERNESS && this.wildernessMap) {
-      if (!this.isInBounds(x, y)) return WILDERNESS_TILES.ROCK;
-      return this.wildernessMap.tiles[x][y];
+    if (this.mapType === MapType.WILDERNESS) {
+      return this.wildernessManager.getTile(x, y);
     }
     if (this.mapType === MapType.TOWN) {
       return this.townManager.getTile(x, y);
@@ -542,7 +535,7 @@ export class Game {
 
   private getEntityAt(x: number, y: number): Entity | undefined {
     if (this.mapType === MapType.WILDERNESS) {
-      return this.wildernessEntities.find(e => e.position.x === x && e.position.y === y);
+      return this.wildernessManager.getEntityAt(x, y);
     }
     if (this.mapType === MapType.TOWN) {
       return this.townManager.getEntityAt(x, y);
@@ -552,7 +545,7 @@ export class Game {
 
   private getAllEntities(): Entity[] {
     if (this.mapType === MapType.WILDERNESS) {
-      return this.wildernessEntities;
+      return this.wildernessManager.getAllEntities();
     }
     if (this.mapType === MapType.TOWN) {
       return this.townManager.getAllEntities();
@@ -562,7 +555,7 @@ export class Game {
 
   private removeEntity(entity: Entity): void {
     if (this.mapType === MapType.WILDERNESS) {
-      this.wildernessEntities = this.wildernessEntities.filter(e => e.id !== entity.id);
+      this.wildernessManager.removeEntity(entity);
     } else if (this.mapType === MapType.TOWN) {
       this.townManager.removeEntity(entity);
     } else {
@@ -1120,8 +1113,8 @@ export class Game {
     }
     
     // 野外传送门
-    if (this.mapType === MapType.WILDERNESS && this.wildernessMap) {
-      const portal = this.wildernessMap.portals.find(p => 
+    if (this.mapType === MapType.WILDERNESS) {
+      const portal = this.wildernessManager.getPortals().find(p => 
         Math.abs(p.x - x) + Math.abs(p.y - y) <= 1
       );
       if (portal) {
@@ -1745,7 +1738,7 @@ export class Game {
   getDungeonMap(): GameMap { return this.dungeonMap; }
   getMapType(): MapType { return this.mapType; }
   getWorldMap(): WorldMapManager { return this.worldMap; }
-  getWildernessMap(): WildernessMap | null { return this.wildernessMap; }
+  getWildernessMap(): WildernessMap | null { return this.wildernessManager?.getMapData() ?? null; }
   isInBuilding(): boolean { return this.inBuilding; }
   getCurrentInterior(): BuildingInterior | null { return this.currentInterior; }
   getCurrentBuilding(): Building | null { return this.currentBuilding; }

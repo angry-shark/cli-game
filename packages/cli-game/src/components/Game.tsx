@@ -180,38 +180,7 @@ export default function GameComponent({ game }: GameComponentProps) {
   }
 }
 
-/** 辅助函数：将实体列表转换为世界坐标 */
-function getEntitiesWithWorldCoords(townManager: any, entities: any[]): any[] {
-  const chunkSize = 40; // 区块大小
-  return entities.map(e => {
-    // 从实体id解析区块坐标
-    // ID格式: type_chunkX_chunkY_... 或 type_chunkX_chunkY
-    const parts = e.id.split('_');
-    
-    // 找到所有的数字部分（区块坐标）
-    const numbers: number[] = [];
-    for (const part of parts) {
-      const num = parseInt(part);
-      if (!isNaN(num)) {
-        numbers.push(num);
-      }
-    }
-    
-    // 应该至少有两个数字（chunkX 和 chunkY）
-    if (numbers.length >= 2) {
-      const chunkX = numbers[numbers.length - 2];
-      const chunkY = numbers[numbers.length - 1];
-      return {
-        ...e,
-        worldX: chunkX * chunkSize + e.position.x,
-        worldY: chunkY * chunkSize + e.position.y
-      };
-    }
-    
-    // 如果解析失败，假设是本地坐标等于世界坐标
-    return { ...e, worldX: e.position.x, worldY: e.position.y };
-  });
-}
+
 
 /** 城镇视图 */
 function TownView({ game, player, messages, config, stdout }: any) {
@@ -224,7 +193,7 @@ function TownView({ game, player, messages, config, stdout }: any) {
   
   // 获取视口瓦片
   const viewportTiles = townManager.getViewport(player.position.x, player.position.y, viewportWidth, viewportHeight);
-  const entities = getEntitiesWithWorldCoords(townManager, townManager.getAllEntities());
+  const entities = townManager.getAllEntities();
 
   return (
     <Box flexDirection="column">
@@ -253,7 +222,7 @@ function TownView({ game, player, messages, config, stdout }: any) {
               
               // 检查是否有实体（使用世界坐标比较）
               const entity = entities.find((e: any) => 
-                e.worldX === worldX && e.worldY === worldY
+                e.position.x === worldX && e.position.y === worldY
               );
               
               if (entity) {

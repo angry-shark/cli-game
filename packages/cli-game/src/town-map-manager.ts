@@ -1,12 +1,12 @@
 /**
- * 城镇地图管理器 - 动态加载系统
+ * 城镇地图管理器 - 继承 MapManager
  */
 
-import * as ROT from 'rot-js';
+import { MapManager, MapPortal } from './map-manager.js';
 import { TownGenerator, TownChunk, Building, TOWN_TILES } from './town-generator.js';
-import { Tile, Point2D, Entity, EntityType, GameMap } from './types.js';
+import { Tile, Point2D, Entity } from './types.js';
 
-/** 世界坐标转区块坐标 */
+/** 坐标转换工具函数 */
 export function worldToChunk(worldX: number, worldY: number, chunkSize: number): Point2D {
   return {
     x: Math.floor(worldX / chunkSize),
@@ -14,7 +14,6 @@ export function worldToChunk(worldX: number, worldY: number, chunkSize: number):
   };
 }
 
-/** 世界坐标转区块内坐标 */
 export function worldToLocal(worldX: number, worldY: number, chunkSize: number): Point2D {
   let x = worldX % chunkSize;
   let y = worldY % chunkSize;
@@ -23,7 +22,6 @@ export function worldToLocal(worldX: number, worldY: number, chunkSize: number):
   return { x, y };
 }
 
-/** 区块内坐标转世界坐标 */
 export function localToWorld(chunkX: number, chunkY: number, localX: number, localY: number, chunkSize: number): Point2D {
   return {
     x: chunkX * chunkSize + localX,
@@ -32,7 +30,7 @@ export function localToWorld(chunkX: number, chunkY: number, localX: number, loc
 }
 
 /** 城镇地图管理器 */
-export class TownMapManager {
+export class TownMapManager extends MapManager {
   private generator: TownGenerator;
   private loadedChunks: Map<string, TownChunk> = new Map();
   private renderDistance: number = 1;
@@ -42,9 +40,25 @@ export class TownMapManager {
   private playerChunkX: number = 0;
   private playerChunkY: number = 0;
 
-  constructor(chunkSize: number = 40) {
+  constructor(chunkSize: number = 26) {
+    super();
     this.chunkSize = chunkSize;
     this.generator = new TownGenerator({ chunkSize });
+  }
+
+  /** 获取地图宽度（3x3 区块） */
+  getWidth(): number {
+    return this.chunkSize * 3;
+  }
+
+  /** 获取地图高度（3x3 区块） */
+  getHeight(): number {
+    return this.chunkSize * 3;
+  }
+
+  /** 检查坐标是否在地图范围内 */
+  isInBounds(x: number, y: number): boolean {
+    return x >= 0 && x < this.getWidth() && y >= 0 && y < this.getHeight();
   }
 
   /** 初始化并加载初始区块 */
@@ -70,7 +84,6 @@ export class TownMapManager {
   private updateLoadedChunks(): void {
     const newLoaded = new Set<string>();
     
-    // 计算需要加载的区块
     for (let dx = -this.renderDistance; dx <= this.renderDistance; dx++) {
       for (let dy = -this.renderDistance; dy <= this.renderDistance; dy++) {
         const cx = this.playerChunkX + dx;
@@ -79,10 +92,8 @@ export class TownMapManager {
         newLoaded.add(key);
         
         if (!this.loadedChunks.has(key)) {
-          // 加载新区块
           const chunk = this.generator.loadChunk(cx, cy);
           this.loadedChunks.set(key, chunk);
-          console.log(`[Town] Loaded chunk ${key}`);
         }
       }
     }
@@ -92,29 +103,28 @@ export class TownMapManager {
       if (!newLoaded.has(key)) {
         this.generator.unloadChunk(chunk.x, chunk.y);
         this.loadedChunks.delete(key);
-        console.log(`[Town] Unloaded chunk ${key}`);
       }
     }
   }
 
   /** 获取指定位置的瓦片 */
-  getTile(worldX: number, worldY: number): Tile {
-    const chunkPos = worldToChunk(worldX, worldY, this.chunkSize);
-    const localPos = worldToLocal(worldX, worldY, this.chunkSize);
+  getTile(x: number, y: number): Tile {
+    const chunkPos = worldToChunk(x, y, this.chunkSize);
+    const localPos = worldToLocal(x, y, this.chunkSize);
     const key = `${chunkPos.x},${chunkPos.y}`;
     
     const chunk = this.loadedChunks.get(key);
     if (!chunk) {
-      return TOWN_TILES.GRASS; // 默认草地
+      return TOWN_TILES.GRASS;
     }
     
     return chunk.tiles[localPos.x]?.[localPos.y] ?? TOWN_TILES.GRASS;
   }
 
   /** 设置指定位置的瓦片 */
-  setTile(worldX: number, worldY: number, tile: Tile): void {
-    const chunkPos = worldToChunk(worldX, worldY, this.chunkSize);
-    const localPos = worldToLocal(worldX, worldY, this.chunkSize);
+  setTile(x: number, y: number, tile: Tile): void {
+    const chunkPos = worldToChunk(x, y, this.chunkSize);
+    const localPos = worldToLocal(x, y, this.chunkSize);
     const key = `${chunkPos.x},${chunkPos.y}`;
     
     const chunk = this.loadedChunks.get(key);
@@ -124,21 +134,19 @@ export class TownMapManager {
   }
 
   /** 检查位置是否可行走 */
-  isWalkable(worldX: number, worldY: number): boolean {
-    const tile = this.getTile(worldX, worldY);
-    return tile.walkable;
+  isWalkable(x: number, y: number): boolean {
+    return this.getTile(x, y).walkable;
   }
 
   /** 检查位置是否透明 */
-  isTransparent(worldX: number, worldY: number): boolean {
-    const tile = this.getTile(worldX, worldY);
-    return tile.transparent;
+  isTransparent(x: number, y: number): boolean {
+    return this.getTile(x, y).transparent;
   }
 
   /** 获取指定位置的建筑 */
-  getBuildingAt(worldX: number, worldY: number): Building | undefined {
-    const chunkPos = worldToChunk(worldX, worldY, this.chunkSize);
-    const localPos = worldToLocal(worldX, worldY, this.chunkSize);
+  getBuildingAt(x: number, y: number): Building | undefined {
+    const chunkPos = worldToChunk(x, y, this.chunkSize);
+    const localPos = worldToLocal(x, y, this.chunkSize);
     const key = `${chunkPos.x},${chunkPos.y}`;
     
     const chunk = this.loadedChunks.get(key);
@@ -151,9 +159,9 @@ export class TownMapManager {
   }
 
   /** 获取指定位置的实体 */
-  getEntityAt(worldX: number, worldY: number): Entity | undefined {
-    const chunkPos = worldToChunk(worldX, worldY, this.chunkSize);
-    const localPos = worldToLocal(worldX, worldY, this.chunkSize);
+  getEntityAt(x: number, y: number): Entity | undefined {
+    const chunkPos = worldToChunk(x, y, this.chunkSize);
+    const localPos = worldToLocal(x, y, this.chunkSize);
     const key = `${chunkPos.x},${chunkPos.y}`;
     
     const chunk = this.loadedChunks.get(key);
@@ -168,7 +176,15 @@ export class TownMapManager {
   getAllEntities(): Entity[] {
     const entities: Entity[] = [];
     for (const chunk of this.loadedChunks.values()) {
-      entities.push(...chunk.entities);
+      // 转换实体位置为世界坐标
+      for (const entity of chunk.entities) {
+        const worldPos = localToWorld(chunk.x, chunk.y, entity.position.x, entity.position.y, this.chunkSize);
+        // 创建新实体，位置使用世界坐标
+        entities.push({
+          ...entity,
+          position: worldPos
+        });
+      }
     }
     return entities;
   }
@@ -188,9 +204,9 @@ export class TownMapManager {
   }
 
   /** 添加实体 */
-  addEntity(worldX: number, worldY: number, entity: Omit<Entity, 'position'>): Entity {
-    const chunkPos = worldToChunk(worldX, worldY, this.chunkSize);
-    const localPos = worldToLocal(worldX, worldY, this.chunkSize);
+  addEntity(x: number, y: number, entity: Omit<Entity, 'position'>): Entity {
+    const chunkPos = worldToChunk(x, y, this.chunkSize);
+    const localPos = worldToLocal(x, y, this.chunkSize);
     const key = `${chunkPos.x},${chunkPos.y}`;
     
     const chunk = this.loadedChunks.get(key);
@@ -207,21 +223,7 @@ export class TownMapManager {
     return fullEntity;
   }
 
-  /** 获取已加载的区块数量 */
-  getLoadedChunkCount(): number {
-    return this.loadedChunks.size;
-  }
-
-  /** 获取当前区块信息 */
-  getCurrentChunkInfo(): { x: number; y: number; loaded: number } {
-    return {
-      x: this.playerChunkX,
-      y: this.playerChunkY,
-      loaded: this.loadedChunks.size
-    };
-  }
-
-  /** 获取视口范围内的所有瓦片（行优先：result[row][col]） */
+  /** 获取视口范围内的所有瓦片（行优先） */
   getViewport(centerX: number, centerY: number, width: number, height: number): Tile[][] {
     const result: Tile[][] = [];
     const halfW = Math.floor(width / 2);
@@ -241,14 +243,11 @@ export class TownMapManager {
 
   /** 寻找安全的出生点 */
   findSpawnPoint(): Point2D {
-    // 从中心向外搜索可行走的位置
     const centerX = Math.floor(this.chunkSize / 2);
     const centerY = Math.floor(this.chunkSize / 2);
     
-    // 首先在初始区块寻找
     const initialChunk = this.generator.getChunk(0, 0) || this.generator.generateChunk(0, 0);
     
-    // 从中心向外螺旋搜索
     for (let radius = 0; radius < this.chunkSize / 2; radius++) {
       for (let dx = -radius; dx <= radius; dx++) {
         for (let dy = -radius; dy <= radius; dy++) {
@@ -268,49 +267,81 @@ export class TownMapManager {
     return { x: centerX, y: centerY };
   }
 
-  /** 寻找出口（传送到地下城） */
-  findExit(): Point2D | undefined {
-    for (const chunk of this.loadedChunks.values()) {
-      for (let x = 0; x < this.chunkSize; x++) {
-        for (let y = 0; y < this.chunkSize; y++) {
-          if (chunk.tiles[x][y].char === TOWN_TILES.EXIT.char) {
-            const worldPos = localToWorld(chunk.x, chunk.y, x, y, this.chunkSize);
-            return worldPos;
-          }
-        }
-      }
-    }
-    return undefined;
+  /** 获取所有传送门（城门） */
+  getPortals(): MapPortal[] {
+    const portals: MapPortal[] = [];
+    const totalSize = this.chunkSize * 3;
+    const center = Math.floor(this.chunkSize / 2);
+    
+    // 北门
+    portals.push({
+      x: this.chunkSize + center,
+      y: 1,
+      targetMapId: '', // 由 world-map 设置
+      direction: 'north'
+    });
+    
+    // 南门
+    portals.push({
+      x: this.chunkSize + center,
+      y: totalSize - 2,
+      targetMapId: '',
+      direction: 'south'
+    });
+    
+    // 西门
+    portals.push({
+      x: 1,
+      y: this.chunkSize + center,
+      targetMapId: '',
+      direction: 'west'
+    });
+    
+    // 东门
+    portals.push({
+      x: totalSize - 2,
+      y: this.chunkSize + center,
+      targetMapId: '',
+      direction: 'east'
+    });
+    
+    return portals;
   }
 
-  /** 创建通往地下城的入口 */
-  createDungeonEntrance(worldX: number, worldY: number): void {
-    const chunkPos = worldToChunk(worldX, worldY, this.chunkSize);
-    const localPos = worldToLocal(worldX, worldY, this.chunkSize);
-    const key = `${chunkPos.x},${chunkPos.y}`;
-    
-    const chunk = this.loadedChunks.get(key);
-    if (chunk) {
-      chunk.tiles[localPos.x][localPos.y] = {
-        ...TOWN_TILES.EXIT,
-        char: '⬇️',
-        color: '#FFD700',
-        description: '通往地下城的入口'
-      };
-    }
+  /** 获取已加载的区块数量 */
+  getLoadedChunkCount(): number {
+    return this.loadedChunks.size;
+  }
+
+  /** 获取当前区块信息 */
+  getCurrentChunkInfo(): { x: number; y: number; loaded: number } {
+    return {
+      x: this.playerChunkX,
+      y: this.playerChunkY,
+      loaded: this.loadedChunks.size
+    };
   }
 
   /** 获取区域名称 */
-  getAreaName(worldX: number, worldY: number): string {
-    const chunkPos = worldToChunk(worldX, worldY, this.chunkSize);
+  getAreaName(x: number, y: number): string {
+    const chunkPos = worldToChunk(x, y, this.chunkSize);
     
     const names = [
       '中央广场', '贸易区', '住宅区', '工业区', '港口区', '农田区', '贵族区', '贫民窟'
     ];
     
-    // 基于区块坐标生成一致的名称
     const index = Math.abs((chunkPos.x * 7 + chunkPos.y * 13) % names.length);
     return names[index];
+  }
+
+  /** 获取区块大小 */
+  getChunkSize(): number {
+    return this.chunkSize;
+  }
+
+  /** 获取生成器 */
+  getGenerator(): TownGenerator {
+    return this.generator;
   }
 }
 
