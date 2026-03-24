@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { Game } from '../game.js';
+import { GameECS } from '../game-ecs.js';
 import { GameState, CombatState } from '../types.js';
 import { MapType } from '../game.js';
 
@@ -8,8 +8,8 @@ import { MapType } from '../game.js';
  * 负责渲染游戏地图、实体和处理输入
  */
 export class GameScene extends Phaser.Scene {
-  private gameLogic!: Game;
-  private tileSize: number = 16;
+  private gameLogic!: GameECS;
+  private tileSize: number = 20;
   private mapContainer!: Phaser.GameObjects.Container;
   private entityContainer!: Phaser.GameObjects.Container;
   private uiContainer!: Phaser.GameObjects.Container;
@@ -29,6 +29,11 @@ export class GameScene extends Phaser.Scene {
   // 渲染缓存
   private tileSprites: Map<string, Phaser.GameObjects.Text> = new Map();
   private entitySprites: Map<string, Phaser.GameObjects.Text> = new Map();
+  
+  // 防止重复渲染
+  private isRendering = false;
+  private needsRender = false;
+  private lastState?: GameState;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -39,15 +44,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    // 初始化游戏逻辑
-    this.gameLogic = new Game(() => {
-      this.onGameUpdate();
-    });
-
-    // 创建容器
+    // 创建容器（先创建容器，再初始化游戏逻辑）
     this.mapContainer = this.add.container(0, 0);
     this.entityContainer = this.add.container(0, 0);
     this.uiContainer = this.add.container(0, 0);
+
+    // 初始化游戏逻辑（传入更新回调）
+    this.gameLogic = new GameECS(() => {
+      this.onGameUpdate();
+    });
 
     // 设置键盘输入
     this.cursors = this.input.keyboard!.createCursorKeys();
@@ -63,11 +68,13 @@ export class GameScene extends Phaser.Scene {
     this.keyESC = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     this.keyQ = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
 
-    // 初始渲染
-    this.renderGame();
-
     // 监听游戏事件
     this.events.on('update', this.handleInput, this);
+    
+    // 延迟初始渲染，确保 Phaser 完全准备好
+    this.time.delayedCall(100, () => {
+      this.renderGame();
+    });
   }
 
   update(): void {
@@ -102,35 +109,85 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onGameUpdate(): void {
-    this.renderGame();
+    // 使用标志位防止重复渲染请求
+    if (this.isRendering) {
+      this.needsRender = true;
+      return;
+    }
+    
+    // 延迟一帧执行渲染，合并多个更新请求
+    this.time.delayedCall(0, () => {
+      this.renderGame();
+    });
   }
 
   private renderGame(): void {
-    // 清空实体容器
-    this.entityContainer.removeAll(true);
+    if (this.isRendering) return;
+    this.isRendering = true;
+    this.needsRender = false;
 
-    // 根据游戏状态渲染不同内容
-    const state = this.gameLogic.getState();
-    
-    switch (state) {
-      case GameState.LOADING:
-        this.renderLoading();
-        break;
-      case GameState.INVENTORY:
-        this.renderInventory();
-        break;
-      case GameState.COMBAT:
-        this.renderCombat();
-        break;
-      case GameState.LEVEL_UP:
-        this.renderLevelUp();
-        break;
-      case GameState.GAME_OVER:
-        this.renderGameOver();
-        break;
-      default:
-        this.renderExploration();
+    try {
+      // 根据游戏状态渲染不同内容
+      const state = this.gameLogic.getState();
+      
+      // 如果状态没变且不是动态状态，可以跳过渲染（优化）
+      if (state === this.lastState && 
+          state !== GameState.COMBAT && 
+          state !== GameState.LOADING) {
+        // 只更新实体位置，不清空重绘
+        this.updateEntities();
+        this.isRendering = false;
+        return;
+      }
+      
+      this.lastState = state as GameState;
+      
+      // 清空容器
+      this.entityContainer.removeAll(true);
+      this.uiContainer.removeAll(true);
+      
+      switch (state) {
+        case GameState.LOADING:
+          this.renderLoading();
+          break;
+        case GameState.INVENTORY:
+          this.mapContainer.setVisible(false);
+          this.entityContainer.setVisible(false);
+          this.renderInventory();
+          break;
+        case GameState.COMBAT:
+          this.mapContainer.setVisible(false);
+          this.entityContainer.setVisible(false);
+          this.renderCombat();
+          break;
+        case GameState.LEVEL_UP:
+          this.mapContainer.setVisible(false);
+          this.entityContainer.setVisible(false);
+          this.renderLevelUp();
+          break;
+        case GameState.GAME_OVER:
+          this.mapContainer.setVisible(false);
+          this.entityContainer.setVisible(false);
+          this.renderGameOver();
+          break;
+        default:
+          this.mapContainer.setVisible(true);
+          this.entityContainer.setVisible(true);
+          this.renderExploration();
+      }
+    } finally {
+      this.isRendering = false;
+      
+      // 如果在渲染过程中有新的渲染请求，执行它
+      if (this.needsRender) {
+        this.time.delayedCall(10, () => this.renderGame());
+      }
     }
+  }
+  
+  /** 仅更新实体位置（优化） */
+  private updateEntities(): void {
+    // TODO: 实现增量更新，只更新变化的部分
   }
 
   private renderExploration(): void {

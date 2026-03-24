@@ -169,9 +169,6 @@ export class Game {
     // 初始化建筑内部系统
     this.interiorManager = new InteriorManager();
     
-    // 根据世界地图当前节点加载对应地图
-    this.loadCurrentWorldNode();
-    
     // 初始化背包
     this.initInventory();
     
@@ -185,9 +182,33 @@ export class Game {
       return this.isTransparent(x, y);
     });
     
+    // 同步加载初始地图（避免异步导致的问题）
+    this.loadInitialMap();
+    
     this.updateFOV();
     this.addMessage('🏘️ 欢迎来到新手村！城镇边缘有传送门通往野外。', '#00FF00');
     this.addMessage('探索世界，前往更远的城镇！', '#FFD700');
+  }
+
+  /** 同步加载初始地图 */
+  private loadInitialMap(): void {
+    const node = this.worldMap.getCurrentNode();
+    if (!node) return;
+
+    switch (node.type) {
+      case WorldMapType.TOWN:
+        this.mapType = MapType.TOWN;
+        this.loadTown(node);
+        break;
+      case WorldMapType.WILDERNESS:
+        this.mapType = MapType.WILDERNESS;
+        this.loadWilderness(node);
+        break;
+      case WorldMapType.DUNGEON:
+        this.mapType = MapType.DUNGEON;
+        this.enterDungeon();
+        break;
+    }
   }
 
   /** 加载当前世界节点对应的地图 - 带进度条 */
