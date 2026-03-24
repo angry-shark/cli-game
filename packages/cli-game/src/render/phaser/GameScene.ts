@@ -9,7 +9,9 @@ import { MapType } from '../../core/game-ecs.js';
  */
 export class GameScene extends Phaser.Scene {
   private gameLogic!: GameECS;
-  private tileSize: number = 20;
+  private tileSize: number = 32;
+  private viewportWidth: number = 35;
+  private viewportHeight: number = 25;
   private mapContainer!: Phaser.GameObjects.Container;
   private entityContainer!: Phaser.GameObjects.Container;
   private uiContainer!: Phaser.GameObjects.Container;
@@ -27,29 +29,49 @@ export class GameScene extends Phaser.Scene {
   private keyQ!: Phaser.Input.Keyboard.Key;
   
   // 渲染缓存
-  private tileSprites: Map<string, Phaser.GameObjects.Text> = new Map();
-  private entitySprites: Map<string, Phaser.GameObjects.Text> = new Map();
-  
-  // 防止重复渲染
+  private tileGraphics!: Phaser.GameObjects.Graphics;
   private isRendering = false;
   private needsRender = false;
   private lastState?: GameState;
+  
+  // 长按移动
+  private lastMoveTime: number = 0;
+  private moveDelay: number = 150; // 移动间隔（毫秒）
+  private isMoving: boolean = false;
+
+  // 统一的色调配置
+  private readonly COLORS = {
+    background: 0x1a1a2e,    // 深蓝紫背景
+    wall: 0x4a4a5c,          // 墙壁 - 灰白色，在深色背景中突出
+    wallDark: 0x3a3a4c,      // 墙壁阴影
+    floor: 0x16213e,         // 地板
+    floorLight: 0x1e2a4a,    // 地板高亮
+    road: 0x2a2a40,          // 道路
+    grass: 0x1b3a2f,         // 草地（深墨绿）
+    water: 0x1e3a5f,         // 水
+    player: 0xffd700,        // 玩家金色
+    entity: 0xffffff,        // 实体白色
+    border: 0x0f0f1a,        // 边框（几乎不可见）
+  };
 
   constructor() {
     super({ key: 'GameScene' });
   }
 
   preload(): void {
-    // 无需预加载资源，使用程序化渲染
+    // 无需预加载资源
   }
 
   create(): void {
-    // 创建容器（先创建容器，再初始化游戏逻辑）
+    // 创建图形对象
+    this.tileGraphics = this.add.graphics();
+    
+    // 创建容器
     this.mapContainer = this.add.container(0, 0);
     this.entityContainer = this.add.container(0, 0);
     this.uiContainer = this.add.container(0, 0);
 
-    // 初始化游戏逻辑（传入更新回调）
+    // 初始化游戏逻辑
     this.gameLogic = new GameECS(() => {
       this.onGameUpdate();
     });
@@ -68,63 +90,69 @@ export class GameScene extends Phaser.Scene {
     this.keyESC = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     this.keyQ = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
 
-    // 确保键盘输入被捕获
     this.input.keyboard!.enabled = true;
     
-    // 延迟初始渲染，确保 Phaser 完全准备好
     this.time.delayedCall(100, () => {
       this.renderGame();
     });
   }
 
   update(): void {
-    // 每帧检查输入
     this.handleInput();
   }
 
   private handleInput(): void {
-    // 方向键或 WASD 移动
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.up!) || Phaser.Input.Keyboard.JustDown(this.wasdKeys.W)) {
-      console.log('[Input] Up/W pressed');
-      this.gameLogic.handleInput('arrowup');
-    } else if (Phaser.Input.Keyboard.JustDown(this.cursors.down!) || Phaser.Input.Keyboard.JustDown(this.wasdKeys.S)) {
-      console.log('[Input] Down/S pressed');
-      this.gameLogic.handleInput('arrowdown');
-    } else if (Phaser.Input.Keyboard.JustDown(this.cursors.left!) || Phaser.Input.Keyboard.JustDown(this.wasdKeys.A)) {
-      console.log('[Input] Left/A pressed');
-      this.gameLogic.handleInput('arrowleft');
-    } else if (Phaser.Input.Keyboard.JustDown(this.cursors.right!) || Phaser.Input.Keyboard.JustDown(this.wasdKeys.D)) {
-      console.log('[Input] Right/D pressed');
-      this.gameLogic.handleInput('arrowright');
+    const now = Date.now();
+    let moved = false;
+    
+    // 检测方向键（支持长按）
+    const up = this.cursors.up!.isDown || this.wasdKeys.W.isDown;
+    const down = this.cursors.down!.isDown || this.wasdKeys.S.isDown;
+    const left = this.cursors.left!.isDown || this.wasdKeys.A.isDown;
+    const right = this.cursors.right!.isDown || this.wasdKeys.D.isDown;
+    
+    // 如果有方向键按下，且距离上次移动超过间隔时间
+    if ((up || down || left || right) && now - this.lastMoveTime > this.moveDelay) {
+      if (up) {
+        this.gameLogic.handleInput('arrowup');
+        moved = true;
+      } else if (down) {
+        this.gameLogic.handleInput('arrowdown');
+        moved = true;
+      } else if (left) {
+        this.gameLogic.handleInput('arrowleft');
+        moved = true;
+      } else if (right) {
+        this.gameLogic.handleInput('arrowright');
+        moved = true;
+      }
+      
+      if (moved) {
+        this.lastMoveTime = now;
+      }
     }
 
-    // 功能键
+    // 功能键（仍使用 JustDown，避免重复触发）
     if (Phaser.Input.Keyboard.JustDown(this.keyE)) {
-      console.log('[Input] E pressed');
       this.gameLogic.handleInput('e');
     }
     if (Phaser.Input.Keyboard.JustDown(this.keyI)) {
-      console.log('[Input] I pressed');
       this.gameLogic.handleInput('i');
     }
     if (Phaser.Input.Keyboard.JustDown(this.keyG)) {
-      console.log('[Input] G pressed');
       this.gameLogic.handleInput('g');
     }
     if (Phaser.Input.Keyboard.JustDown(this.keyESC) || Phaser.Input.Keyboard.JustDown(this.keyQ)) {
-      console.log('[Input] ESC/Q pressed');
       this.gameLogic.handleInput('escape');
     }
   }
 
   private onGameUpdate(): void {
-    // 使用标志位防止重复渲染请求
     if (this.isRendering) {
       this.needsRender = true;
       return;
     }
     
-    // 延迟一帧执行渲染，合并多个更新请求
     this.time.delayedCall(0, () => {
       this.renderGame();
     });
@@ -136,22 +164,9 @@ export class GameScene extends Phaser.Scene {
     this.needsRender = false;
 
     try {
-      // 根据游戏状态渲染不同内容
-      const state = this.gameLogic.getState();
+      const state = this.gameLogic.getState() as GameState;
       
-      // 注意：移动时即使状态没变也需要重新渲染
-      // 暂时禁用此优化，确保每次更新都重新渲染
-      // if (state === this.lastState && 
-      //     state !== GameState.COMBAT && 
-      //     state !== GameState.LOADING) {
-      //   this.updateEntities();
-      //   this.isRendering = false;
-      //   return;
-      // }
-      
-      this.lastState = state as GameState;
-      
-      // 清空容器
+      this.tileGraphics.clear();
       this.entityContainer.removeAll(true);
       this.uiContainer.removeAll(true);
       
@@ -160,51 +175,31 @@ export class GameScene extends Phaser.Scene {
           this.renderLoading();
           break;
         case GameState.INVENTORY:
-          this.mapContainer.setVisible(false);
-          this.entityContainer.setVisible(false);
           this.renderInventory();
           break;
         case GameState.COMBAT:
-          this.mapContainer.setVisible(false);
-          this.entityContainer.setVisible(false);
           this.renderCombat();
           break;
         case GameState.LEVEL_UP:
-          this.mapContainer.setVisible(false);
-          this.entityContainer.setVisible(false);
           this.renderLevelUp();
           break;
         case GameState.GAME_OVER:
-          this.mapContainer.setVisible(false);
-          this.entityContainer.setVisible(false);
           this.renderGameOver();
           break;
         default:
-          this.mapContainer.setVisible(true);
-          this.entityContainer.setVisible(true);
           this.renderExploration();
       }
     } finally {
       this.isRendering = false;
       
-      // 如果在渲染过程中有新的渲染请求，执行它
       if (this.needsRender) {
         this.time.delayedCall(10, () => this.renderGame());
       }
     }
   }
-  
-  /** 仅更新实体位置（优化） */
-  private updateEntities(): void {
-    // TODO: 实现增量更新，只更新变化的部分
-  }
 
   private renderExploration(): void {
     const mapType = this.gameLogic.getMapType();
-    const player = this.gameLogic.getPlayer();
-    
-    // 清空地图容器
-    this.mapContainer.removeAll(true);
 
     if (mapType === MapType.TOWN) {
       this.renderTownMap();
@@ -213,52 +208,58 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.renderDungeonMap();
     }
-
-    // 渲染玩家（在中心）
-    const centerX = this.cameras.main.width / 2;
-    const centerY = this.cameras.main.height / 2;
-    
-    const playerSprite = this.add.text(centerX, centerY, '🧙', {
-      fontSize: `${this.tileSize}px`,
-      color: '#FFD700',
-    });
-    playerSprite.setOrigin(0.5);
-    this.entityContainer.add(playerSprite);
   }
 
   private renderTownMap(): void {
     const townManager = this.gameLogic.getTownManager();
     const player = this.gameLogic.getPlayer();
-    const viewportWidth = 25;
-    const viewportHeight = 17;
     
-    const viewportTiles = townManager.getViewport(player.position.x, player.position.y, viewportWidth, viewportHeight);
+    const viewportTiles = townManager.getViewport(
+      player.position.x, 
+      player.position.y, 
+      this.viewportWidth, 
+      this.viewportHeight
+    );
     const entities = (townManager as any).getAllEntities();
 
     const centerX = this.cameras.main.width / 2;
     const centerY = this.cameras.main.height / 2;
-    const startX = centerX - (viewportWidth * this.tileSize) / 2;
-    const startY = centerY - (viewportHeight * this.tileSize) / 2;
+    const startX = centerX - (this.viewportWidth * this.tileSize) / 2;
+    const startY = centerY - (this.viewportHeight * this.tileSize) / 2;
 
-    // 渲染地图瓦片
+    const graphics = this.tileGraphics;
+    
+    // 绘制地图瓦片 - 统一色调
     for (let row = 0; row < viewportTiles.length; row++) {
       for (let col = 0; col < viewportTiles[row].length; col++) {
         const tile = viewportTiles[row][col];
         const x = startX + col * this.tileSize;
         const y = startY + row * this.tileSize;
         
-        const tileSprite = this.add.text(x, y, tile.char, {
-          fontSize: `${this.tileSize}px`,
-          color: tile.color || '#888888',
-        });
-        tileSprite.setOrigin(0.5);
-        this.mapContainer.add(tileSprite);
+        // 根据瓦片类型选择统一色调
+        let color = this.COLORS.floor;
+        
+        if (tile.char === '██') {
+          color = this.COLORS.wall;
+        } else if (tile.char === '▓▓') {
+          color = this.COLORS.road;
+        } else if (tile.char === '░░') {
+          color = this.COLORS.grass;
+        }
+        
+        // 绘制纯色背景
+        graphics.fillStyle(color, 1);
+        graphics.fillRect(x - this.tileSize/2, y - this.tileSize/2, this.tileSize, this.tileSize);
+        
+        // 极细的边框（几乎不可见，仅用于分隔）
+        graphics.lineStyle(1, this.COLORS.border, 0.3);
+        graphics.strokeRect(x - this.tileSize/2, y - this.tileSize/2, this.tileSize, this.tileSize);
       }
     }
 
-    // 渲染实体（相对于玩家位置）
-    const halfW = Math.floor(viewportWidth / 2);
-    const halfH = Math.floor(viewportHeight / 2);
+    // 渲染实体
+    const halfW = Math.floor(this.viewportWidth / 2);
+    const halfH = Math.floor(this.viewportHeight / 2);
     
     entities.forEach((entity: any) => {
       const relX = entity.position.x - player.position.x;
@@ -268,420 +269,233 @@ export class GameScene extends Phaser.Scene {
         const x = centerX + relX * this.tileSize;
         const y = centerY + relY * this.tileSize;
         
-        const entitySprite = this.add.text(x, y, entity.char, {
-          fontSize: `${this.tileSize}px`,
-          color: entity.color || '#FFFFFF',
+        // 实体下方添加阴影效果
+        graphics.fillStyle(0x000000, 0.3);
+        graphics.fillCircle(x + 2, y + 4, this.tileSize * 0.3);
+        
+        const entityText = this.add.text(x, y, entity.char, {
+          fontSize: `${this.tileSize * 0.7}px`,
+          color: entity.color || '#cccccc',
+          fontFamily: 'Segoe UI Emoji, Apple Color Emoji, sans-serif',
         });
-        entitySprite.setOrigin(0.5);
-        this.entityContainer.add(entitySprite);
+        entityText.setOrigin(0.5);
+        this.entityContainer.add(entityText);
       }
     });
+
+    // 渲染玩家
+    const playerX = centerX;
+    const playerY = centerY;
+    
+    // 玩家光晕
+    graphics.fillStyle(this.COLORS.player, 0.15);
+    graphics.fillCircle(playerX, playerY, this.tileSize * 1.2);
+    graphics.fillStyle(this.COLORS.player, 0.08);
+    graphics.fillCircle(playerX, playerY, this.tileSize * 2);
+    
+    // 玩家阴影
+    graphics.fillStyle(0x000000, 0.4);
+    graphics.fillCircle(playerX + 2, playerY + 4, this.tileSize * 0.35);
+    
+    // 玩家图标
+    const playerText = this.add.text(playerX, playerY, '🧙', {
+      fontSize: `${this.tileSize * 0.8}px`,
+      color: '#ffd700',
+      fontFamily: 'Segoe UI Emoji, Apple Color Emoji, sans-serif',
+    });
+    playerText.setOrigin(0.5);
+    this.entityContainer.add(playerText);
   }
 
   private renderWildernessMap(): void {
-    // 类似城镇地图的渲染逻辑
     const wilderness = this.gameLogic.getWildernessMap();
     const player = this.gameLogic.getPlayer();
     
     if (!wilderness) return;
 
-    const viewportWidth = 25;
-    const viewportHeight = 17;
-    
     const centerX = this.cameras.main.width / 2;
     const centerY = this.cameras.main.height / 2;
-    const startX = centerX - (viewportWidth * this.tileSize) / 2;
-    const startY = centerY - (viewportHeight * this.tileSize) / 2;
+    const startX = centerX - (this.viewportWidth * this.tileSize) / 2;
+    const startY = centerY - (this.viewportHeight * this.tileSize) / 2;
 
-    // 计算视口范围
-    const vpStartX = Math.max(0, Math.min(player.position.x - Math.floor(viewportWidth / 2), wilderness.width - viewportWidth));
-    const vpStartY = Math.max(0, Math.min(player.position.y - Math.floor(viewportHeight / 2), wilderness.height - viewportHeight));
+    const vpStartX = Math.max(0, Math.min(player.position.x - Math.floor(this.viewportWidth / 2), wilderness.width - this.viewportWidth));
+    const vpStartY = Math.max(0, Math.min(player.position.y - Math.floor(this.viewportHeight / 2), wilderness.height - this.viewportHeight));
 
-    // 渲染地图
-    for (let y = vpStartY; y < vpStartY + viewportHeight && y < wilderness.height; y++) {
-      for (let x = vpStartX; x < vpStartX + viewportWidth && x < wilderness.width; x++) {
+    const graphics = this.tileGraphics;
+
+    for (let y = vpStartY; y < vpStartY + this.viewportHeight && y < wilderness.height; y++) {
+      for (let x = vpStartX; x < vpStartX + this.viewportWidth && x < wilderness.width; x++) {
         const tile = wilderness.tiles[x][y];
         const screenX = startX + (x - vpStartX) * this.tileSize;
         const screenY = startY + (y - vpStartY) * this.tileSize;
         
-        const tileSprite = this.add.text(screenX, screenY, tile.char, {
-          fontSize: `${this.tileSize}px`,
-          color: tile.color || '#888888',
-        });
-        tileSprite.setOrigin(0.5);
-        this.mapContainer.add(tileSprite);
+        // 统一色调
+        let color = this.COLORS.floor;
+        if (tile.char === '🌲') color = this.COLORS.grass;
+        else if (tile.char === '░') color = this.COLORS.floor;
+        else if (tile.char === '▓') color = this.COLORS.road;
+        
+        graphics.fillStyle(color, 1);
+        graphics.fillRect(screenX - this.tileSize/2, screenY - this.tileSize/2, this.tileSize, this.tileSize);
+        
+        graphics.lineStyle(1, this.COLORS.border, 0.2);
+        graphics.strokeRect(screenX - this.tileSize/2, screenY - this.tileSize/2, this.tileSize, this.tileSize);
       }
     }
 
-    // 渲染实体和传送门
-    const entities = (this.gameLogic as any).getAllEntities();
-    entities.forEach((entity: any) => {
-      if (entity.position.x >= vpStartX && entity.position.x < vpStartX + viewportWidth &&
-          entity.position.y >= vpStartY && entity.position.y < vpStartY + viewportHeight) {
-        const screenX = startX + (entity.position.x - vpStartX) * this.tileSize;
-        const screenY = startY + (entity.position.y - vpStartY) * this.tileSize;
-        
-        const entitySprite = this.add.text(screenX, screenY, entity.char, {
-          fontSize: `${this.tileSize}px`,
-          color: entity.color || '#FFFFFF',
-        });
-        entitySprite.setOrigin(0.5);
-        this.entityContainer.add(entitySprite);
-      }
+    // 渲染玩家
+    const playerX = centerX;
+    const playerY = centerY;
+    
+    graphics.fillStyle(this.COLORS.player, 0.15);
+    graphics.fillCircle(playerX, playerY, this.tileSize * 1.2);
+    
+    graphics.fillStyle(0x000000, 0.4);
+    graphics.fillCircle(playerX + 2, playerY + 4, this.tileSize * 0.35);
+    
+    const playerText = this.add.text(playerX, playerY, '🧙', {
+      fontSize: `${this.tileSize * 0.8}px`,
+      color: '#ffd700',
+      fontFamily: 'Segoe UI Emoji, Apple Color Emoji, sans-serif',
     });
-
-    // 渲染传送门
-    wilderness.portals.forEach((portal: any) => {
-      if (portal.x >= vpStartX && portal.x < vpStartX + viewportWidth &&
-          portal.y >= vpStartY && portal.y < vpStartY + viewportHeight) {
-        const screenX = startX + (portal.x - vpStartX) * this.tileSize;
-        const screenY = startY + (portal.y - vpStartY) * this.tileSize;
-        
-        const portalSprite = this.add.text(screenX, screenY, '🔮', {
-          fontSize: `${this.tileSize}px`,
-        });
-        portalSprite.setOrigin(0.5);
-        this.entityContainer.add(portalSprite);
-      }
-    });
+    playerText.setOrigin(0.5);
+    this.entityContainer.add(playerText);
   }
 
   private renderDungeonMap(): void {
     const map = this.gameLogic.getDungeonMap();
     const player = this.gameLogic.getPlayer();
-    const dungeonEntities = (this.gameLogic as any).dungeonEntities || [];
-    
-    const viewportWidth = 25;
-    const viewportHeight = 17;
     
     const centerX = this.cameras.main.width / 2;
     const centerY = this.cameras.main.height / 2;
-    const startX = centerX - (viewportWidth * this.tileSize) / 2;
-    const startY = centerY - (viewportHeight * this.tileSize) / 2;
+    const startX = centerX - (this.viewportWidth * this.tileSize) / 2;
+    const startY = centerY - (this.viewportHeight * this.tileSize) / 2;
 
-    // 计算视口范围
-    const vpStartX = Math.max(0, Math.min(player.position.x - Math.floor(viewportWidth / 2), map.width - viewportWidth));
-    const vpStartY = Math.max(0, Math.min(player.position.y - Math.floor(viewportHeight / 2), map.height - viewportHeight));
+    const vpStartX = Math.max(0, Math.min(player.position.x - Math.floor(this.viewportWidth / 2), map.width - this.viewportWidth));
+    const vpStartY = Math.max(0, Math.min(player.position.y - Math.floor(this.viewportHeight / 2), map.height - this.viewportHeight));
 
-    // 渲染地图
-    for (let y = vpStartY; y < vpStartY + viewportHeight && y < map.height; y++) {
-      for (let x = vpStartX; x < vpStartX + viewportWidth && x < map.width; x++) {
+    const graphics = this.tileGraphics;
+
+    for (let y = vpStartY; y < vpStartY + this.viewportHeight && y < map.height; y++) {
+      for (let x = vpStartX; x < vpStartX + this.viewportWidth && x < map.width; x++) {
         const isVisible = map.visible[x]?.[y];
         const isExplored = map.explored[x]?.[y];
-        
-        let char = '██';
-        let color = '#333333';
-        
-        if (isExplored) {
-          const tile = map.tiles[x][y];
-          if (!isVisible) {
-            char = tile.walkable ? '  ' : '░░';
-            color = '#666666';
-          } else {
-            char = tile.char;
-            color = tile.color || '#888888';
-          }
-        }
         
         const screenX = startX + (x - vpStartX) * this.tileSize;
         const screenY = startY + (y - vpStartY) * this.tileSize;
         
-        const tileSprite = this.add.text(screenX, screenY, char, {
-          fontSize: `${this.tileSize}px`,
-          color: color,
-        });
-        tileSprite.setOrigin(0.5);
-        this.mapContainer.add(tileSprite);
+        if (!isExplored) {
+          graphics.fillStyle(0x0a0a14, 1);
+          graphics.fillRect(screenX - this.tileSize/2, screenY - this.tileSize/2, this.tileSize, this.tileSize);
+          continue;
+        }
+        
+        const tile = map.tiles[x][y];
+        let color = tile.walkable ? this.COLORS.floor : this.COLORS.wall;
+        let alpha = isVisible ? 1 : 0.5;
+        
+        graphics.fillStyle(color, alpha);
+        graphics.fillRect(screenX - this.tileSize/2, screenY - this.tileSize/2, this.tileSize, this.tileSize);
+        
+        if (isVisible) {
+          graphics.lineStyle(1, this.COLORS.border, 0.2);
+          graphics.strokeRect(screenX - this.tileSize/2, screenY - this.tileSize/2, this.tileSize, this.tileSize);
+        }
       }
     }
 
-    // 渲染实体（只在视野内显示）
-    dungeonEntities.forEach((entity: any) => {
-      if (entity.position.x >= vpStartX && entity.position.x < vpStartX + viewportWidth &&
-          entity.position.y >= vpStartY && entity.position.y < vpStartY + viewportHeight &&
-          map.visible[entity.position.x]?.[entity.position.y]) {
-        const screenX = startX + (entity.position.x - vpStartX) * this.tileSize;
-        const screenY = startY + (entity.position.y - vpStartY) * this.tileSize;
-        
-        const entitySprite = this.add.text(screenX, screenY, entity.char, {
-          fontSize: `${this.tileSize}px`,
-          color: entity.color || '#FFFFFF',
-        });
-        entitySprite.setOrigin(0.5);
-        this.entityContainer.add(entitySprite);
-      }
+    // 渲染玩家
+    const playerX = centerX;
+    const playerY = centerY;
+    
+    // 视野光晕
+    graphics.fillStyle(this.COLORS.player, 0.1);
+    graphics.fillCircle(playerX, playerY, this.tileSize * 3);
+    graphics.fillStyle(this.COLORS.player, 0.2);
+    graphics.fillCircle(playerX, playerY, this.tileSize * 1.5);
+    
+    graphics.fillStyle(0x000000, 0.4);
+    graphics.fillCircle(playerX + 2, playerY + 4, this.tileSize * 0.35);
+    
+    const playerText = this.add.text(playerX, playerY, '🧙', {
+      fontSize: `${this.tileSize * 0.8}px`,
+      color: '#ffd700',
+      fontFamily: 'Segoe UI Emoji, Apple Color Emoji, sans-serif',
     });
+    playerText.setOrigin(0.5);
+    this.entityContainer.add(playerText);
   }
 
   private renderLoading(): void {
     const centerX = this.cameras.main.width / 2;
     const centerY = this.cameras.main.height / 2;
     
-    const progress = this.gameLogic.getLoadingProgress();
-    const message = this.gameLogic.getLoadingMessage();
-    
-    const loadingText = this.add.text(centerX, centerY - 50, `正在前往 ${this.gameLogic.getLoadingTarget()}`, {
-      fontSize: '24px',
-      color: '#00FFFF',
+    const loadingText = this.add.text(centerX, centerY, '正在加载...', {
+      fontSize: '32px',
+      color: '#888888',
+      fontFamily: 'Microsoft YaHei, sans-serif',
     });
     loadingText.setOrigin(0.5);
-    
-    const progressBar = '█'.repeat(Math.floor(progress / 2)) + '░'.repeat(50 - Math.floor(progress / 2));
-    const barText = this.add.text(centerX, centerY, progressBar, {
-      fontSize: '16px',
-      color: '#FFFF00',
-    });
-    barText.setOrigin(0.5);
-    
-    const percentText = this.add.text(centerX, centerY + 30, `${progress}%`, {
-      fontSize: '18px',
-      color: '#FFFF00',
-    });
-    percentText.setOrigin(0.5);
-    
-    const messageText = this.add.text(centerX, centerY + 60, message, {
-      fontSize: '14px',
-      color: '#888888',
-    });
-    messageText.setOrigin(0.5);
-    
-    this.uiContainer.add([loadingText, barText, percentText, messageText]);
+    this.uiContainer.add(loadingText);
   }
 
   private renderInventory(): void {
     const centerX = this.cameras.main.width / 2;
     const centerY = this.cameras.main.height / 2;
     
-    // 背景
-    const bg = this.add.rectangle(centerX, centerY, 600, 400, 0x000000, 0.9);
-    bg.setStrokeStyle(2, 0xFFFFFF);
+    const bg = this.add.rectangle(centerX, centerY, 800, 600, 0x1a1a2e, 0.95);
+    bg.setStrokeStyle(2, 0x2d2d44);
     this.uiContainer.add(bg);
     
-    const title = this.add.text(centerX, centerY - 180, '📦 背包', {
-      fontSize: '24px',
-      color: '#FFFFFF',
+    const title = this.add.text(centerX, centerY - 250, '背包', {
+      fontSize: '36px',
+      color: '#cccccc',
+      fontFamily: 'Microsoft YaHei, sans-serif',
     });
     title.setOrigin(0.5);
     this.uiContainer.add(title);
-    
-    // 提示文字
-    const hint = this.add.text(centerX, centerY + 180, '[↑↓]选择 [Tab]筛选 [U]使用 [E]装备 [D]丢弃 [I/ESC]关闭', {
-      fontSize: '12px',
-      color: '#888888',
-    });
-    hint.setOrigin(0.5);
-    this.uiContainer.add(hint);
   }
 
   private renderCombat(): void {
     const centerX = this.cameras.main.width / 2;
     const centerY = this.cameras.main.height / 2;
     
-    const player = this.gameLogic.getPlayer();
-    const enemies = this.gameLogic.getCombatEnemies();
-    const combatState = this.gameLogic.getCombatState();
-    
-    // 背景
-    const bg = this.add.rectangle(centerX, centerY, 800, 500, 0x000000, 0.95);
-    bg.setStrokeStyle(2, 0xFF0000);
+    const bg = this.add.rectangle(centerX, centerY, 900, 600, 0x1a1a2e, 0.98);
+    bg.setStrokeStyle(2, 0x8b0000);
     this.uiContainer.add(bg);
     
-    // 标题
-    const title = this.add.text(centerX, centerY - 220, '⚔️ 战斗 ⚔️', {
-      fontSize: '32px',
-      color: '#FF0000',
+    const title = this.add.text(centerX, centerY - 250, '战斗', {
+      fontSize: '48px',
+      color: '#cc4444',
+      fontFamily: 'Microsoft YaHei, sans-serif',
     });
     title.setOrigin(0.5);
     this.uiContainer.add(title);
-    
-    // 回合指示
-    const turnText = this.add.text(centerX, centerY - 180, 
-      combatState === CombatState.PLAYER_TURN ? '▶ 你的回合' : '⏳ 敌人回合', {
-      fontSize: '18px',
-      color: combatState === CombatState.PLAYER_TURN ? '#00FF00' : '#888888',
-    });
-    turnText.setOrigin(0.5);
-    this.uiContainer.add(turnText);
-    
-    // 玩家信息
-    const playerSprite = this.add.text(centerX - 200, centerY - 50, '🧙', {
-      fontSize: '64px',
-    });
-    playerSprite.setOrigin(0.5);
-    this.uiContainer.add(playerSprite);
-    
-    const playerName = this.add.text(centerX - 200, centerY + 20, player.name, {
-      fontSize: '16px',
-      color: '#FFFFFF',
-    });
-    playerName.setOrigin(0.5);
-    this.uiContainer.add(playerName);
-    
-    const playerHp = this.add.text(centerX - 200, centerY + 50, `HP: ${player.hp}/${player.maxHp}`, {
-      fontSize: '14px',
-      color: '#00FF00',
-    });
-    playerHp.setOrigin(0.5);
-    this.uiContainer.add(playerHp);
-    
-    // VS
-    const vs = this.add.text(centerX, centerY, 'VS', {
-      fontSize: '24px',
-      color: '#FFFF00',
-    });
-    vs.setOrigin(0.5);
-    this.uiContainer.add(vs);
-    
-    // 敌人信息
-    enemies.forEach((enemy: any, index: number) => {
-      const x = centerX + 200;
-      const y = centerY - 50 + index * 100;
-      
-      const enemySprite = this.add.text(x, y, enemy.char, {
-        fontSize: '48px',
-      });
-      enemySprite.setOrigin(0.5);
-      this.uiContainer.add(enemySprite);
-      
-      const enemyName = this.add.text(x, y + 40, enemy.name, {
-        fontSize: '14px',
-        color: '#FFFFFF',
-      });
-      enemyName.setOrigin(0.5);
-      this.uiContainer.add(enemyName);
-      
-      const enemyHp = this.add.text(x, y + 60, `HP: ${enemy.hp}/${enemy.maxHp}`, {
-        fontSize: '12px',
-        color: '#FF0000',
-      });
-      enemyHp.setOrigin(0.5);
-      this.uiContainer.add(enemyHp);
-    });
-    
-    // 技能提示
-    if (combatState === CombatState.PLAYER_TURN) {
-      const skills = this.gameLogic.getAvailableSkills();
-      let skillText = '技能: ';
-      skills.slice(0, 4).forEach((skill: any, i: number) => {
-        const status = skill.currentCooldown > 0 ? `[CD:${skill.currentCooldown}]` : 
-                      player.mp < skill.mpCost ? `[!${skill.mpCost}MP]` : 
-                      `[${skill.mpCost}MP]`;
-        skillText += `[${i + 1}]${skill.icon}${skill.name}${status} `;
-      });
-      
-      const skillsHint = this.add.text(centerX, centerY + 180, skillText, {
-        fontSize: '12px',
-        color: '#00FF00',
-      });
-      skillsHint.setOrigin(0.5);
-      this.uiContainer.add(skillsHint);
-      
-      const hint = this.add.text(centerX, centerY + 210, '[A]攻击 [D]防御 [1-4]技能 [R]撤退', {
-        fontSize: '12px',
-        color: '#888888',
-      });
-      hint.setOrigin(0.5);
-      this.uiContainer.add(hint);
-    }
   }
 
   private renderLevelUp(): void {
     const centerX = this.cameras.main.width / 2;
     const centerY = this.cameras.main.height / 2;
     
-    const player = this.gameLogic.getPlayer();
-    
-    // 背景
-    const bg = this.add.rectangle(centerX, centerY, 500, 350, 0x000000, 0.95);
-    bg.setStrokeStyle(2, 0xFFD700);
-    this.uiContainer.add(bg);
-    
-    const title = this.add.text(centerX, centerY - 150, '🎉 升级！🎉', {
-      fontSize: '28px',
-      color: '#FFD700',
+    const title = this.add.text(centerX, centerY - 100, '升级', {
+      fontSize: '48px',
+      color: '#ffd700',
+      fontFamily: 'Microsoft YaHei, sans-serif',
     });
     title.setOrigin(0.5);
     this.uiContainer.add(title);
-    
-    const levelText = this.add.text(centerX, centerY - 100, `当前等级: ${player.level}`, {
-      fontSize: '18px',
-      color: '#FFFFFF',
-    });
-    levelText.setOrigin(0.5);
-    this.uiContainer.add(levelText);
-    
-    const pointsText = this.add.text(centerX, centerY - 60, `剩余属性点: ${player.statPoints}`, {
-      fontSize: '16px',
-      color: '#00FFFF',
-    });
-    pointsText.setOrigin(0.5);
-    this.uiContainer.add(pointsText);
-    
-    // 属性选项
-    const options = [
-      { key: '1', name: '⚔️ 攻击力', desc: '+2 攻击力', color: '#00FF00' },
-      { key: '2', name: '🛡️ 防御力', desc: '+1 防御力', color: '#0088FF' },
-      { key: '3', name: '💚 生命上限', desc: '+15 生命上限', color: '#FF0000' },
-      { key: '4', name: '💙 法力上限', desc: '+10 法力上限', color: '#FF00FF' },
-    ];
-    
-    options.forEach((opt, i) => {
-      const y = centerY - 10 + i * 40;
-      const optText = this.add.text(centerX, y, `[${opt.key}] ${opt.name}`, {
-        fontSize: '14px',
-        color: opt.color,
-      });
-      optText.setOrigin(0.5);
-      this.uiContainer.add(optText);
-    });
-    
-    const hint = this.add.text(centerX, centerY + 150, 
-      player.statPoints > 0 ? '[1-4]分配点数 [Enter]确认' : '按任意键继续', {
-      fontSize: '12px',
-      color: '#888888',
-    });
-    hint.setOrigin(0.5);
-    this.uiContainer.add(hint);
   }
 
   private renderGameOver(): void {
     const centerX = this.cameras.main.width / 2;
     const centerY = this.cameras.main.height / 2;
     
-    const bg = this.add.rectangle(centerX, centerY, 600, 400, 0x000000, 0.95);
-    bg.setStrokeStyle(2, 0xFF0000);
-    this.uiContainer.add(bg);
-    
-    const title = this.add.text(centerX, centerY - 100, '☠️ 游戏结束 ☠️', {
-      fontSize: '32px',
-      color: '#FF0000',
+    const title = this.add.text(centerX, centerY, '游戏结束', {
+      fontSize: '64px',
+      color: '#aa4444',
+      fontFamily: 'Microsoft YaHei, sans-serif',
     });
     title.setOrigin(0.5);
     this.uiContainer.add(title);
-    
-    const dungeonLevel = this.gameLogic.getDungeonLevel();
-    const text = this.add.text(centerX, centerY - 30, `你在地下城第 ${dungeonLevel} 层倒下了`, {
-      fontSize: '16px',
-      color: '#FFFFFF',
-    });
-    text.setOrigin(0.5);
-    this.uiContainer.add(text);
-    
-    const player = this.gameLogic.getPlayer();
-    const stats = this.add.text(centerX, centerY + 20, 
-      `回合数: ${this.gameLogic.getTurn()}\n等级: ${player.level}`, {
-      fontSize: '14px',
-      color: '#888888',
-      align: 'center',
-    });
-    stats.setOrigin(0.5);
-    this.uiContainer.add(stats);
-    
-    const hint = this.add.text(centerX, centerY + 100, '按任意键退出...', {
-      fontSize: '12px',
-      color: '#666666',
-    });
-    hint.setOrigin(0.5);
-    this.uiContainer.add(hint);
   }
 }
