@@ -4,7 +4,7 @@
  */
 
 import * as ROT from 'rot-js';
-import { Tile, GameMap, Entity, EntityType, Point2D } from './types.js';
+import { Tile, GameMap, Entity, EntityType, Point2D } from '../core/types.js';
 
 /** 野外瓦片定义 - 类似城镇的方块地面 */
 export const WILDERNESS_TILES = {

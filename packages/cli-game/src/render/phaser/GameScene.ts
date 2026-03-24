@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
-import { GameECS } from '../game-ecs.js';
-import { GameState, CombatState } from '../types.js';
-import { MapType } from '../game.js';
+import { GameECS } from '../../core/game-ecs.js';
+import { GameState, CombatState } from '../../core/types.js';
+import { MapType } from '../../core/game-ecs.js';
 
 /**
  * Phaser 游戏主场景
@@ -68,8 +68,8 @@ export class GameScene extends Phaser.Scene {
     this.keyESC = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     this.keyQ = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
 
-    // 监听游戏事件
-    this.events.on('update', this.handleInput, this);
+    // 确保键盘输入被捕获
+    this.input.keyboard!.enabled = true;
     
     // 延迟初始渲染，确保 Phaser 完全准备好
     this.time.delayedCall(100, () => {
@@ -78,32 +78,41 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(): void {
-    // 每帧更新逻辑（如果需要）
+    // 每帧检查输入
+    this.handleInput();
   }
 
   private handleInput(): void {
     // 方向键或 WASD 移动
     if (Phaser.Input.Keyboard.JustDown(this.cursors.up!) || Phaser.Input.Keyboard.JustDown(this.wasdKeys.W)) {
+      console.log('[Input] Up/W pressed');
       this.gameLogic.handleInput('arrowup');
     } else if (Phaser.Input.Keyboard.JustDown(this.cursors.down!) || Phaser.Input.Keyboard.JustDown(this.wasdKeys.S)) {
+      console.log('[Input] Down/S pressed');
       this.gameLogic.handleInput('arrowdown');
     } else if (Phaser.Input.Keyboard.JustDown(this.cursors.left!) || Phaser.Input.Keyboard.JustDown(this.wasdKeys.A)) {
+      console.log('[Input] Left/A pressed');
       this.gameLogic.handleInput('arrowleft');
     } else if (Phaser.Input.Keyboard.JustDown(this.cursors.right!) || Phaser.Input.Keyboard.JustDown(this.wasdKeys.D)) {
+      console.log('[Input] Right/D pressed');
       this.gameLogic.handleInput('arrowright');
     }
 
     // 功能键
     if (Phaser.Input.Keyboard.JustDown(this.keyE)) {
+      console.log('[Input] E pressed');
       this.gameLogic.handleInput('e');
     }
     if (Phaser.Input.Keyboard.JustDown(this.keyI)) {
+      console.log('[Input] I pressed');
       this.gameLogic.handleInput('i');
     }
     if (Phaser.Input.Keyboard.JustDown(this.keyG)) {
+      console.log('[Input] G pressed');
       this.gameLogic.handleInput('g');
     }
     if (Phaser.Input.Keyboard.JustDown(this.keyESC) || Phaser.Input.Keyboard.JustDown(this.keyQ)) {
+      console.log('[Input] ESC/Q pressed');
       this.gameLogic.handleInput('escape');
     }
   }
@@ -130,15 +139,15 @@ export class GameScene extends Phaser.Scene {
       // 根据游戏状态渲染不同内容
       const state = this.gameLogic.getState();
       
-      // 如果状态没变且不是动态状态，可以跳过渲染（优化）
-      if (state === this.lastState && 
-          state !== GameState.COMBAT && 
-          state !== GameState.LOADING) {
-        // 只更新实体位置，不清空重绘
-        this.updateEntities();
-        this.isRendering = false;
-        return;
-      }
+      // 注意：移动时即使状态没变也需要重新渲染
+      // 暂时禁用此优化，确保每次更新都重新渲染
+      // if (state === this.lastState && 
+      //     state !== GameState.COMBAT && 
+      //     state !== GameState.LOADING) {
+      //   this.updateEntities();
+      //   this.isRendering = false;
+      //   return;
+      // }
       
       this.lastState = state as GameState;
       

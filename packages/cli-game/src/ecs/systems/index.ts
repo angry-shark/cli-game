@@ -30,30 +30,41 @@ export class MovementSystem implements System {
 
   private handleMove(world: World, entity: EntityId, dx: number, dy: number): void {
     const pos = world.getComponent<Components.Position>(entity, 'Position');
-    if (!pos) return;
+    if (!pos) {
+      console.log('[MovementSystem] No Position component for entity', entity);
+      return;
+    }
 
     const newX = pos.x + dx;
     const newY = pos.y + dy;
 
+    console.log(`[MovementSystem] Moving entity ${entity} from (${pos.x}, ${pos.y}) to (${newX}, ${newY})`);
+
     // 检查碰撞
-    if (this.canMoveTo(world, newX, newY)) {
+    if (this.canMoveTo(world, entity, newX, newY)) {
       pos.x = newX;
       pos.y = newY;
+      console.log(`[MovementSystem] Move successful, new position: (${pos.x}, ${pos.y})`);
       world.emit('entityMoved', { entity, x: pos.x, y: pos.y });
     } else {
+      console.log(`[MovementSystem] Move blocked at (${newX}, ${newY})`);
       world.emit('moveBlocked', { entity, x: newX, y: newY });
     }
   }
 
-  private canMoveTo(world: World, x: number, y: number): boolean {
+  private canMoveTo(world: World, movingEntity: EntityId, x: number, y: number): boolean {
     // 获取所有有 Blocker 和 Position 的实体
     const entities = world.getEntitiesWith('Blocker', 'Position');
     
     for (const entity of entities) {
+      // 跳过自己
+      if (entity === movingEntity) continue;
+      
       const pos = world.getComponent<Components.Position>(entity, 'Position');
       const blocker = world.getComponent<Components.Blocker>(entity, 'Blocker');
       
       if (pos && blocker && blocker.blocksMovement && pos.x === x && pos.y === y) {
+        console.log(`[MovementSystem] Blocked by entity ${entity} at (${pos.x}, ${pos.y})`);
         return false;
       }
     }

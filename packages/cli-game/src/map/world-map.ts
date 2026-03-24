@@ -3,7 +3,7 @@
  * 管理城镇、野外、地下城之间的连接和传送
  */
 
-import { Point2D } from './types.js';
+import { Point2D } from '../core/types.js';
 
 /** 地图类型 */
 export enum WorldMapType {

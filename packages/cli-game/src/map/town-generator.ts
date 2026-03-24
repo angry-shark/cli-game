@@ -4,7 +4,7 @@
  */
 
 import * as ROT from 'rot-js';
-import { Tile, GameMap, Entity, EntityType, Point2D } from './types.js';
+import { Tile, GameMap, Entity, EntityType, Point2D } from '../core/types.js';
 
 /** 城镇瓦片定义 - emoji本身2字符宽度，不加空格 */
 export const TOWN_TILES = {

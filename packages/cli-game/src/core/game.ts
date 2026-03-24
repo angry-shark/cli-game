@@ -10,17 +10,17 @@ import {
   GameConfig, Item, ItemType, ItemEffect, CombatState,
   Skill, Buff
 } from './types.js';
-import { createItem, getRandomLoot, RARITY_COLORS, ITEM_TYPE_ICONS } from './items.js';
+import { createItem, getRandomLoot, RARITY_COLORS, ITEM_TYPE_ICONS } from '../data/items.js';
 
 // 重新导出物品相关常量
 export { RARITY_COLORS, ITEM_TYPE_ICONS };
-import { createSkill, getEnemyDefaultSkill } from './skills.js';
-import { TownMapManager } from './town-map-manager.js';
-import { TOWN_TILES, Building } from './town-generator.js';
-import { InteriorManager, BuildingInterior } from './building-interior.js';
-import { WorldMapManager, WorldMapType, PortalDirection } from './world-map.js';
-import { WildernessMapManager } from './wilderness-map-manager.js';
-import { WildernessMap } from './wilderness-generator.js';
+import { createSkill, getEnemyDefaultSkill } from '../data/skills.js';
+import { TownMapManager } from '../map/town-map-manager.js';
+import { TOWN_TILES, Building } from '../map/town-generator.js';
+import { InteriorManager, BuildingInterior } from '../map/building-interior.js';
+import { WorldMapManager, WorldMapType, PortalDirection } from '../map/world-map.js';
+import { WildernessMapManager } from '../map/wilderness-map-manager.js';
+import { WildernessMap } from '../map/wilderness-generator.js';
 
 /** 当前地图类型 */
 export enum MapType {

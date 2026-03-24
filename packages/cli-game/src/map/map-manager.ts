@@ -3,7 +3,7 @@
  * 定义所有地图类型的通用接口
  */
 
-import { Tile, Point2D, Entity } from './types.js';
+import { Tile, Point2D, Entity } from '../core/types.js';
 
 /** 视口配置 */
 export interface ViewportConfig {

@@ -4,7 +4,7 @@
 
 import { MapManager, MapPortal } from './map-manager.js';
 import { TownGenerator, TownChunk, Building, TOWN_TILES } from './town-generator.js';
-import { Tile, Point2D, Entity } from './types.js';
+import { Tile, Point2D, Entity } from '../core/types.js';
 
 /** 坐标转换工具函数 */
 export function worldToChunk(worldX: number, worldY: number, chunkSize: number): Point2D {

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Phaser from 'phaser';
-import { GameScene } from '../phaser/GameScene.js';
+import { GameScene } from '../../render/phaser/GameScene.js';
 
 /**
  * React 应用组件

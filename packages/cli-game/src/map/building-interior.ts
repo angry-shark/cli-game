@@ -3,7 +3,7 @@
  * 管理可进入的建筑和室内场景
  */
 
-import { Tile, Entity, EntityType, Point2D } from './types.js';
+import { Tile, Entity, EntityType, Point2D } from '../core/types.js';
 import { TOWN_TILES, Building, BuildingType } from './town-generator.js';
 
 /** 建筑内部布局 */

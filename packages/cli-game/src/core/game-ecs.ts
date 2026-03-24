@@ -7,20 +7,20 @@
 import * as ROT from 'rot-js';
 import { 
   ECSWorld, Components, Systems, EntityId, World
-} from './ecs/index.js';
+} from '../ecs/index.js';
 import { 
   Point2D, Tile, GameMap, LogMessage, 
   InventorySlot, EquipmentSlots as OldEquipmentSlots,
   GameConfig, Item as OldItem, CombatState as OldCombatState
 } from './types.js';
-import { createItem, getRandomLoot, RARITY_COLORS, ITEM_TYPE_ICONS } from './items.js';
-import { createSkill, getEnemyDefaultSkill } from './skills.js';
-import { TownMapManager } from './town-map-manager.js';
-import { TOWN_TILES, Building } from './town-generator.js';
-import { InteriorManager, BuildingInterior } from './building-interior.js';
-import { WorldMapManager, WorldMapType, PortalDirection } from './world-map.js';
-import { WildernessMapManager } from './wilderness-map-manager.js';
-import { WildernessMap } from './wilderness-generator.js';
+import { createItem, getRandomLoot, RARITY_COLORS, ITEM_TYPE_ICONS } from '../data/items.js';
+import { createSkill, getEnemyDefaultSkill } from '../data/skills.js';
+import { TownMapManager } from '../map/town-map-manager.js';
+import { TOWN_TILES, Building } from '../map/town-generator.js';
+import { InteriorManager, BuildingInterior } from '../map/building-interior.js';
+import { WorldMapManager, WorldMapType, PortalDirection } from '../map/world-map.js';
+import { WildernessMapManager } from '../map/wilderness-map-manager.js';
+import { WildernessMap } from '../map/wilderness-generator.js';
 
 /** 重新导出物品相关常量 */
 export { RARITY_COLORS, ITEM_TYPE_ICONS };
@@ -516,9 +516,24 @@ export class GameECS {
     }
     
     if (dx !== 0 || dy !== 0) {
+      console.log(`[GameECS] Emitting move: entity=${this.playerEntity}, dx=${dx}, dy=${dy}`);
       this.world.emit('move', { entity: this.playerEntity, dx, dy });
       this.turn++;
       this.world.update(1); // 更新 ECS 世界
+      
+      // 同步位置到地图管理器（用于渲染）
+      const pos = this.world.getComponent<Components.Position>(this.playerEntity, 'Position');
+      if (pos) {
+        console.log(`[GameECS] Player new position: (${pos.x}, ${pos.y})`);
+        
+        // 同步到对应的地图管理器
+        if (this.mapType === MapType.TOWN) {
+          this.townManager.updatePlayerPosition(pos.x, pos.y);
+        } else if (this.mapType === MapType.WILDERNESS) {
+          // 野外地图管理器
+        }
+      }
+      
       this.updateFOV();
     }
   }

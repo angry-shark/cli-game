@@ -2,7 +2,7 @@
  * 物品数据库
  */
 
-import { Item, ItemType, ItemRarity } from './types.js';
+import { Item, ItemType, ItemRarity } from '../core/types.js';
 
 export const ITEM_DATABASE: Record<string, Item> = {
   // 武器

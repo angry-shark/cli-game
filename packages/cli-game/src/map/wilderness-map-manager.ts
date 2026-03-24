@@ -4,7 +4,7 @@
 
 import { MapManager, MapPortal } from './map-manager.js';
 import { WildernessGenerator, WildernessMap, WildernessConfig, WILDERNESS_TILES } from './wilderness-generator.js';
-import { Tile, Point2D, Entity, EntityType } from './types.js';
+import { Tile, Point2D, Entity, EntityType } from '../core/types.js';
 
 /** 野外地图管理器 */
 export class WildernessMapManager extends MapManager {

@@ -2,7 +2,7 @@
  * 技能数据库
  */
 
-import { Skill, SkillType } from './types.js';
+import { Skill, SkillType } from '../core/types.js';
 
 /** 玩家技能数据库 */
 export const PLAYER_SKILLS: Record<string, Skill> = {
