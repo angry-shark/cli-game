@@ -10,14 +10,63 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "preview": "vite preview",
+
+    "build:all": "pnpm build:web && pnpm build:desktop && pnpm build:mobile",
+
+    "build:web": "vite build",
+    "preview:web": "vite preview",
+
+    "build:desktop": "pnpm build:desktop:all",
+    "build:desktop:all": "tauri build",
+    "build:desktop:mac": "tauri build --target aarch64-apple-darwin",
+    "build:desktop:mac-intel": "tauri build --target x86_64-apple-darwin",
+    "build:desktop:win": "tauri build --target x86_64-pc-windows-msvc",
+    "build:desktop:linux": "tauri build --target x86_64-unknown-linux-gnu",
+    "dev:desktop": "tauri dev",
+    "tauri": "tauri",
+
+    "build:mobile": "pnpm build:mobile:all",
+    "build:mobile:all": "pnpm build:mobile:android && pnpm build:mobile:ios",
+    "build:mobile:android": "pnpm build:web && cap sync android && cd android && ./gradlew assembleRelease",
+    "build:mobile:android:debug": "pnpm build:web && cap sync android && cd android && ./gradlew assembleDebug",
+    "build:mobile:ios": "pnpm build:web && cap sync ios && cd ios && xcodebuild -workspace App.xcworkspace -scheme App -configuration Release",
+    "build:mobile:ios:simulator": "pnpm build:web && cap sync ios && cd ios && xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -destination 'platform=iOS Simulator'",
+    "cap:init": "cap init cli-game com.example.cligame --web-dir dist",
+    "cap:add:android": "cap add android",
+    "cap:add:ios": "cap add ios",
+    "cap:sync": "cap sync",
+    "cap:open:android": "cap open android",
+    "cap:open:ios": "cap open ios",
+    "cap:copy": "cap copy",
+    "cap:update": "cap update",
+
+    "build:wechat": "pnpm build:web && pnpm wechat:adapt",
+    "wechat:adapt": "node scripts/wechat-adapt.js",
+    "wechat:dev": "pnpm build:wechat && pnpm wechat:open",
+    "wechat:open": "echo '请使用微信开发者工具打开 dist-wechat 目录'",
+    "wechat:preview": "pnpm build:wechat && pnpm wechat:open",
+
+    "build:bytedance": "pnpm build:web && pnpm bytedance:adapt",
+    "bytedance:adapt": "node scripts/bytedance-adapt.js",
+    "bytedance:dev": "pnpm build:bytedance && pnpm bytedance:open",
+    "bytedance:open": "echo '请使用抖音开发者工具打开 dist-bytedance 目录'",
+
+    "build:steam": "pnpm build:desktop && pnpm steam:prepare",
+    "steam:prepare": "node scripts/steam-prepare.js",
+    "steam:dev": "pnpm dev:desktop",
+
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix"
   },
   "keywords": [
     "game",
     "roguelike",
     "rpg",
     "phaser",
-    "typescript"
+    "typescript",
+    "multiplatform"
   ],
   "license": "ISC",
   "dependencies": {
@@ -27,10 +76,17 @@
     "rot-js": "^2.2.1"
   },
   "devDependencies": {
+    "@capacitor/android": "^5.6.0",
+    "@capacitor/cli": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
+    "@capacitor/ios": "^8.1.0",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/cli": "2.0.0-rc.18",
     "@types/node": "^25.4.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "steamworks.js": "^0.4.0",
     "vite": "^6.2.3"
   }
 }

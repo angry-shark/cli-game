@@ -1,0 +1,33 @@
+{
+  "appId": "com.example.roguelikerpg",
+  "appName": "Roguelike RPG",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "buildOptions": {
+      "keystorePath": "android/keystore.jks",
+      "keystoreAlias": "key0"
+    }
+  },
+  "ios": {
+    "contentInset": "always",
+    "scheme": "RoguelikeRPG"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 3000,
+      "launchAutoHide": true,
+      "backgroundColor": "#1a1a2e",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": true,
+      "androidSpinnerStyle": "large",
+      "iosSpinnerStyle": "small",
+      "spinnerColor": "#999999"
+    }
+  }
+}
